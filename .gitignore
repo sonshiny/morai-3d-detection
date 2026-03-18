@@ -1,0 +1,7 @@
+*.bag
+*.pth
+dataset/
+inference_results/
+__pycache__/
+*.pyc
+result.txt
