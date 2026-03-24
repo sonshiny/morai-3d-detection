@@ -8,7 +8,7 @@ from resnet_fpn import ResNet50_FPN, Bottleneck
 from anchor_generator import generate_anchors, generate_anchors_full
 from decoder import FFNDecoder
 from static_decoder import StaticMapDecoder, generate_polyline_anchors
-from loss_calculator import CustomLoss
+from loss_calculator import CustomLoss, MapHungarianMatcher
 from torch.utils.data import DataLoader
 
 CAM_ORDER = ['cam_front', 'cam_front_left', 'cam_front_right',
@@ -210,44 +210,37 @@ class AutoNavModel(nn.Module):
 # MORAI 데이터 기준 좌표 범위가 ~[-60, +210]이므로 60m으로 정규화
 POLYLINE_SCALE = 60.0
 
-class StaticMapLoss(nn.Module):
-    """
-    정적 맵 디코더의 Loss.
-    GT가 없으면 0을 반환 (아직 라벨이 없는 경우 대비).
-    GT가 있으면 분류 + 폴리라인 회귀 Loss 계산.
+# ===========================================================
+# 정적 맵 Loss (Hungarian Matching 적용 버전!)
+# ===========================================================
 
-    수정사항:
-    - 폴리라인 좌표를 POLYLINE_SCALE로 정규화 (이전: 정규화 없음 → L1 ~50)
-    - 논문 Section 2.9 가중치: λ_map_cls=1.0, λ_map_reg=10.0
-    """
+class StaticMapLoss(nn.Module):
     def __init__(self):
         super().__init__()
         self.cls_loss = nn.CrossEntropyLoss()
+        # 방금 만든 중매쟁이 소환!
+        self.matcher = MapHungarianMatcher(cost_class=2.0, cost_line=5.0) 
 
     def forward(self, pred_classes, pred_lines, gt_classes, gt_lines):
-        """
-        pred_classes: [100, 3]
-        pred_lines:   [100, 20, 2]    ← 2D (x,y)
-        gt_classes:    [M]             (없으면 빈 텐서)
-        gt_lines:      [M, 20, 2]     (없으면 빈 텐서)
-        """
         device = pred_classes.device
 
         if gt_classes is None or gt_classes.shape[0] == 0:
             zero = torch.tensor(0.0, device=device, requires_grad=True)
             return zero
 
-        # 간단한 매칭: GT 개수만큼 앞쪽 앵커에 매칭 (향후 Hungarian으로 개선)
-        M = min(gt_classes.shape[0], pred_classes.shape[0])
+        # 1. 중매쟁이(Matcher)를 통해 최적의 짝꿍 인덱스 찾기
+        pred_idx, gt_idx = self.matcher(pred_classes, pred_lines, gt_classes, gt_lines, polyline_scale=POLYLINE_SCALE)
+        
+        pred_idx = pred_idx.to(device)
+        gt_idx = gt_idx.to(device)
 
-        loss_cls = self.cls_loss(pred_classes[:M], gt_classes[:M])
-        # 정규화된 L1 Loss (이전: 정규화 없어서 loss ~50 → 지금: ~0.5)
-        loss_reg = F.l1_loss(pred_lines[:M] / POLYLINE_SCALE,
-                             gt_lines[:M] / POLYLINE_SCALE)
+        # 2. 짝지어진 앵커들끼리만 Loss 계산! (이제 억울하게 맞는 앵커가 없습니다)
+        loss_cls = self.cls_loss(pred_classes[pred_idx], gt_classes[gt_idx])
+        loss_reg = F.l1_loss(pred_lines[pred_idx] / POLYLINE_SCALE,
+                             gt_lines[gt_idx] / POLYLINE_SCALE)
 
         # 논문 Section 2.9: λ_map_cls=1.0, λ_map_reg=10.0
         return 1.0 * loss_cls + 10.0 * loss_reg
-
 
 # ===========================================================
 # 학습 루프

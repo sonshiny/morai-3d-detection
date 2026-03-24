@@ -78,6 +78,50 @@ class HungarianMatcher(nn.Module):
                 torch.as_tensor(gt_indices,   dtype=torch.int64))
 
 
+# ===========================================================
+# 정적 맵 전용 헝가리안 매칭 (Map Hungarian Matcher)
+# ===========================================================
+class MapHungarianMatcher(nn.Module):
+    def __init__(self, cost_class=2.0, cost_line=5.0):
+        super().__init__()
+        self.cost_class = cost_class
+        self.cost_line = cost_line
+
+    @torch.no_grad()
+    def forward(self, pred_classes, pred_lines, gt_classes, gt_lines, polyline_scale=60.0):
+        """
+        pred_classes : [100, num_classes]
+        pred_lines   : [100, 20, 2]
+        gt_classes   : [N]
+        gt_lines     : [N, 20, 2]
+        """
+        if gt_classes is None or gt_classes.shape[0] == 0:
+            device = pred_classes.device
+            return (torch.zeros(0, dtype=torch.int64, device=device),
+                    torch.zeros(0, dtype=torch.int64, device=device))
+
+        device = pred_classes.device
+        num_queries = pred_classes.shape[0] # 100개 앵커
+
+        # 1. 분류 비용 (정답 클래스를 얼마나 높게 예측했는가?)
+        out_prob = pred_classes.softmax(-1)
+        cost_class = -out_prob[:, gt_classes] # [100, N] 행렬
+
+        # 2. 선형 회귀 비용 (선 모양이 얼마나 비슷한가?)
+        # 20개의 (x,y) 점을 40개의 숫자로 쫙 펼쳐서 L1 거리(차이)를 계산합니다.
+        pred_lines_flat = (pred_lines / polyline_scale).view(num_queries, -1)
+        gt_lines_flat = (gt_lines / polyline_scale).view(gt_classes.shape[0], -1)
+        cost_line = torch.cdist(pred_lines_flat, gt_lines_flat, p=1) # [100, N] 행렬
+
+        # 3. 최종 비용 행렬 계산 (분류 + 회귀)
+        C = self.cost_class * cost_class + self.cost_line * cost_line
+        C = C.cpu().numpy()
+
+        # 4. scipy의 linear_sum_assignment를 이용해 최적의 짝꿍 맺어주기
+        pred_indices, gt_indices = linear_sum_assignment(C)
+        return (torch.as_tensor(pred_indices, dtype=torch.int64),
+                torch.as_tensor(gt_indices, dtype=torch.int64))
+
 class CustomLoss(nn.Module):
     """
     수정된 Loss:
