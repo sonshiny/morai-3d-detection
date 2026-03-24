@@ -5,7 +5,7 @@ import torch.optim as optim
 
 from morai_dataset import MoraiDataset, morai_collate_fn
 from resnet_fpn import ResNet50_FPN, Bottleneck
-from anchor_generator import generate_anchors
+from anchor_generator import generate_anchors, generate_anchors_full
 from decoder import FFNDecoder
 from static_decoder import StaticMapDecoder, generate_polyline_anchors
 from loss_calculator import CustomLoss
@@ -51,19 +51,23 @@ class AutoNavModel(nn.Module):
     1. 멀티스케일 특징 활용 (p2~p5 전부)
     2. static_decoder 연결 (정적 맵: 차선/횡단보도/도로경계)
     3. decoder 출력 num_classes=4 (배경 포함)
+    4. 앵커 오프셋 메커니즘 (논문 Section 2.6)
+       - 디코더가 절대 좌표 대신 앵커 대비 오프셋을 예측
+       - final_box = anchor + offset → 학습 안정성 대폭 향상
     """
     def __init__(self):
         super().__init__()
         # 공유 인코더
         self.backbone = ResNet50_FPN(Bottleneck)
-        
+
         # 동적 객체 디코더 (Detection)
-        self.det_decoder = FFNDecoder(num_classes=4)  # car/truck/bus/background
-        self.det_anchors = generate_anchors()          # [900, 3]
-        
+        self.det_decoder = FFNDecoder(num_classes=4)        # car/truck/bus/background
+        self.det_anchors_3d = generate_anchors()            # [900, 3] 이미지 투영용
+        self.det_anchors_full = generate_anchors_full()     # [900, 11] 오프셋 기준
+
         # 정적 맵 디코더 (Online Mapping)
         self.map_decoder = StaticMapDecoder(num_classes=3)  # 차선경계/횡단보도/도로경계
-        self.map_anchors = generate_polyline_anchors()      # [100, 20, 3]
+        self.map_anchors = generate_polyline_anchors()      # [100, 20, 2]
 
     def _sample_features(self, features_list, anchors_3d, intrinsic, extrinsic, N):
         """
@@ -113,15 +117,16 @@ class AutoNavModel(nn.Module):
             map_lines    : [100, 20, 3] 정적 맵 폴리라인
         """
         device = images.device
-        self.det_anchors = self.det_anchors.to(device)
+        self.det_anchors_3d = self.det_anchors_3d.to(device)
+        self.det_anchors_full = self.det_anchors_full.to(device)
         self.map_anchors = self.map_anchors.to(device)
-        
-        N_det = self.det_anchors.shape[0]  # 900
-        N_map = self.map_anchors.shape[0]  # 100
-        
-        # Detection 앵커: [900, 4] 동차 좌표
+
+        N_det = self.det_anchors_3d.shape[0]  # 900
+        N_map = self.map_anchors.shape[0]     # 100
+
+        # Detection 앵커: [900, 4] 동차 좌표 (이미지 투영용)
         det_anchors_homo = torch.cat(
-            [self.det_anchors, torch.ones(N_det, 1, device=device)], dim=-1
+            [self.det_anchors_3d, torch.ones(N_det, 1, device=device)], dim=-1
         )
         
         # Mapping 앵커: [100, 20, 2] → 중심점 [100, 2] → z=0 추가 → [100, 4]
@@ -185,9 +190,15 @@ class AutoNavModel(nn.Module):
             det_agg_features = det_agg_features / valid_cams
             map_agg_features = map_agg_features / valid_cams
 
-        # 4. 디코더 통과
-        det_classes, det_boxes = self.det_decoder(det_agg_features)
-        map_classes, map_lines = self.map_decoder(map_agg_features)
+        # 4. 디코더 통과 + 앵커 오프셋 메커니즘
+        # 디코더는 '오프셋'을 예측하고, 앵커에 더해서 최종 예측을 만든다
+        # 이전: 절대 좌표 직접 예측 (학습 매우 어려움)
+        # 지금: anchor + small_offset (학습 안정적)
+        det_classes, det_offsets = self.det_decoder(det_agg_features)
+        det_boxes = self.det_anchors_full + det_offsets  # [900, 11]
+
+        map_classes, map_offsets = self.map_decoder(map_agg_features)
+        map_lines = self.map_anchors + map_offsets       # [100, 20, 2]
 
         return det_classes, det_boxes, map_classes, map_lines
 
@@ -195,16 +206,24 @@ class AutoNavModel(nn.Module):
 # ===========================================================
 # 정적 맵 Loss (간단 버전)
 # ===========================================================
+# 정적 맵 폴리라인 정규화 스케일
+# MORAI 데이터 기준 좌표 범위가 ~[-60, +210]이므로 60m으로 정규화
+POLYLINE_SCALE = 60.0
+
 class StaticMapLoss(nn.Module):
     """
     정적 맵 디코더의 Loss.
     GT가 없으면 0을 반환 (아직 라벨이 없는 경우 대비).
     GT가 있으면 분류 + 폴리라인 회귀 Loss 계산.
+
+    수정사항:
+    - 폴리라인 좌표를 POLYLINE_SCALE로 정규화 (이전: 정규화 없음 → L1 ~50)
+    - 논문 Section 2.9 가중치: λ_map_cls=1.0, λ_map_reg=10.0
     """
     def __init__(self):
         super().__init__()
         self.cls_loss = nn.CrossEntropyLoss()
-    
+
     def forward(self, pred_classes, pred_lines, gt_classes, gt_lines):
         """
         pred_classes: [100, 3]
@@ -213,28 +232,32 @@ class StaticMapLoss(nn.Module):
         gt_lines:      [M, 20, 2]     (없으면 빈 텐서)
         """
         device = pred_classes.device
-        
+
         if gt_classes is None or gt_classes.shape[0] == 0:
             zero = torch.tensor(0.0, device=device, requires_grad=True)
             return zero
-        
+
         # 간단한 매칭: GT 개수만큼 앞쪽 앵커에 매칭 (향후 Hungarian으로 개선)
         M = min(gt_classes.shape[0], pred_classes.shape[0])
-        
+
         loss_cls = self.cls_loss(pred_classes[:M], gt_classes[:M])
-        loss_reg = F.l1_loss(pred_lines[:M], gt_lines[:M])
-        
-        return loss_cls + 5.0 * loss_reg
+        # 정규화된 L1 Loss (이전: 정규화 없어서 loss ~50 → 지금: ~0.5)
+        loss_reg = F.l1_loss(pred_lines[:M] / POLYLINE_SCALE,
+                             gt_lines[:M] / POLYLINE_SCALE)
+
+        # 논문 Section 2.9: λ_map_cls=1.0, λ_map_reg=10.0
+        return 1.0 * loss_cls + 10.0 * loss_reg
 
 
 # ===========================================================
 # 학습 루프
 # ===========================================================
 if __name__ == "__main__":
-    print("🚗 SparseDrive 인지 모듈 학습을 시작합니다! 🚗")
-    print("   - Detection: Focal Loss + 배경 클래스")
-    print("   - Online Mapping: 정적 맵 디코더 연결")
-    print("   - 멀티스케일 특징 활용 (p2~p5)\n")
+    print("SparseDrive 인지 모듈 학습을 시작합니다!")
+    print("   - Detection: Focal Loss + 배경 클래스 (2.0*cls + 0.25*reg)")
+    print("   - Online Mapping: 정규화된 L1 Loss (1.0*cls + 10.0*reg)")
+    print("   - 앵커 오프셋 메커니즘 (anchor + offset)")
+    print("   - Backbone LR 0.1x, CosineAnnealing\n")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[디바이스] {device}\n")
@@ -246,12 +269,21 @@ if __name__ == "__main__":
     
     # Detection Loss (Focal Loss + 배경)
     det_criterion = CustomLoss(num_classes=3).to(device)
-    
+
     # Static Map Loss (GT 없으면 자동으로 0 반환)
     map_criterion = StaticMapLoss().to(device)
-    
-    optimizer = optim.AdamW(model.parameters(), lr=1e-3)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
+
+    # 논문 Section 2.10: AdamW + Cosine Annealing
+    # Backbone LR을 낮게 설정 (논문: backbone_lr_scale=0.1~0.5)
+    backbone_params = list(model.backbone.parameters())
+    backbone_ids = set(id(p) for p in backbone_params)
+    other_params = [p for p in model.parameters() if id(p) not in backbone_ids]
+
+    optimizer = optim.AdamW([
+        {'params': backbone_params, 'lr': 4e-5},   # backbone: 4e-4 * 0.1
+        {'params': other_params,    'lr': 4e-4},    # 나머지: 4e-4
+    ], weight_decay=1e-3)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=200, eta_min=1e-6)
 
     num_epochs   = 200
     best_loss    = float('inf')

@@ -134,7 +134,9 @@ class CustomLoss(nn.Module):
         loss_bbox = F.l1_loss(pred_boxes[pred_idx] / scale,
                               gt_boxes[gt_idx]     / scale)
 
-        total_loss = loss_class + 5.0 * loss_bbox
+        # SparseDrive 논문 Section 2.9: λ_det_cls=2.0, λ_det_reg=0.25
+        # 이전: 1.0*cls + 5.0*reg → reg 가중치가 논문 대비 20배 과도
+        total_loss = 2.0 * loss_class + 0.25 * loss_bbox
         return total_loss, loss_class, loss_bbox
 
 
