@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
@@ -6,84 +7,234 @@ from morai_dataset import MoraiDataset, morai_collate_fn
 from resnet_fpn import ResNet50_FPN, Bottleneck
 from anchor_generator import generate_anchors
 from decoder import FFNDecoder
-from torch.utils.data import DataLoader
+from static_decoder import StaticMapDecoder, generate_polyline_anchors
 from loss_calculator import CustomLoss
+from torch.utils.data import DataLoader
 
 CAM_ORDER = ['cam_front', 'cam_front_left', 'cam_front_right',
              'cam_back',  'cam_back_left',  'cam_back_right']
 
-class AutoNavModel(torch.nn.Module):
+
+# ===========================================================
+# 멀티스케일 샘플링 함수
+# ===========================================================
+def sample_from_multiscale(features_list, grid_2d, valid_mask, N):
+    """
+    p2~p5 모든 스케일에서 특징을 샘플링하고 합산.
+    
+    기존: p2(56x56) 한 스케일에서만 샘플링
+    변경: p2(56x56) + p3(28x28) + p4(14x14) + p5(7x7) 전부에서 샘플링
+    
+    효과: 가까운 큰 차는 p2에서, 먼 작은 차는 p4/p5에서 잘 잡힘
+    
+    features_list: [p2, p3, p4, p5] 각각 [1, 256, H, W]
+    grid_2d:       [1, 1, N, 2] 정규화된 좌표 (-1 ~ 1)
+    valid_mask:    [N] bool
+    """
+    combined = torch.zeros(N, 256, device=features_list[0].device)
+    
+    for feat in features_list:
+        sampled = F.grid_sample(feat, grid_2d, align_corners=False)
+        sampled = sampled.view(256, N).T           # [N, 256]
+        mask = valid_mask.float().unsqueeze(1)      # [N, 1]
+        sampled = sampled * mask
+        combined = combined + sampled
+    
+    # 4개 스케일의 평균
+    combined = combined / len(features_list)
+    return combined
+
+
+class AutoNavModel(nn.Module):
+    """
+    수정사항:
+    1. 멀티스케일 특징 활용 (p2~p5 전부)
+    2. static_decoder 연결 (정적 맵: 차선/횡단보도/도로경계)
+    3. decoder 출력 num_classes=4 (배경 포함)
+    """
     def __init__(self):
         super().__init__()
+        # 공유 인코더
         self.backbone = ResNet50_FPN(Bottleneck)
-        self.decoder  = FFNDecoder()
-        self.anchors  = generate_anchors()   # [900, 3]
+        
+        # 동적 객체 디코더 (Detection)
+        self.det_decoder = FFNDecoder(num_classes=4)  # car/truck/bus/background
+        self.det_anchors = generate_anchors()          # [900, 3]
+        
+        # 정적 맵 디코더 (Online Mapping)
+        self.map_decoder = StaticMapDecoder(num_classes=3)  # 차선경계/횡단보도/도로경계
+        self.map_anchors = generate_polyline_anchors()      # [100, 20, 3]
+
+    def _sample_features(self, features_list, anchors_3d, intrinsic, extrinsic, N):
+        """
+        3D 앵커를 2D로 투영하고 멀티스케일에서 특징 샘플링.
+        Detection과 Online Mapping 둘 다 이 함수를 공유.
+        """
+        device = features_list[0].device
+        
+        # 동차 좌표로 변환
+        if anchors_3d.dim() == 2:
+            # Detection: [N, 3] → [N, 4]
+            anchors_homo = torch.cat(
+                [anchors_3d, torch.ones(N, 1, device=device)], dim=-1
+            )
+        else:
+            # 이미 [N, 4]면 그대로
+            anchors_homo = anchors_3d
+        
+        # 앵커 → 카메라 좌표 → 이미지 좌표
+        points_cam = (extrinsic @ anchors_homo.T).T          # [N, 4]
+        points_2d  = (intrinsic @ points_cam[:, :3].T).T     # [N, 3]
+        depth = points_2d[:, 2]
+        u = points_2d[:, 0] / (depth + 1e-6)
+        v = points_2d[:, 1] / (depth + 1e-6)
+
+        valid_mask = depth > 0.1
+
+        # 정규화 좌표 (원본 해상도 기준)
+        u_norm = (u / 640.0) * 2.0 - 1.0
+        v_norm = (v / 480.0) * 2.0 - 1.0
+        grid = torch.stack([u_norm, v_norm], dim=-1).view(1, 1, N, 2)
+
+        # 멀티스케일 샘플링
+        sampled = sample_from_multiscale(features_list, grid, valid_mask, N)
+        return sampled, valid_mask
 
     def forward(self, images, intrinsics, extrinsics):
         """
         images     : [1, 6, 3, 224, 224]
         intrinsics : [1, 6, 3, 3]
         extrinsics : [1, 6, 4, 4]
+        
+        반환:
+            det_classes  : [900, 4]   동적 객체 분류 (배경 포함)
+            det_boxes    : [900, 11]  동적 객체 3D 박스
+            map_classes  : [100, 3]   정적 맵 분류
+            map_lines    : [100, 20, 3] 정적 맵 폴리라인
         """
         device = images.device
-        self.anchors = self.anchors.to(device)
-        N = self.anchors.shape[0]  # 900
-
-        anchors_homo = torch.cat(
-            [self.anchors, torch.ones(N, 1, device=device)], dim=-1
-        )  # [900, 4]
-
-        agg_features = torch.zeros(N, 256, device=device)
-        valid_cams   = 0
+        self.det_anchors = self.det_anchors.to(device)
+        self.map_anchors = self.map_anchors.to(device)
+        
+        N_det = self.det_anchors.shape[0]  # 900
+        N_map = self.map_anchors.shape[0]  # 100
+        
+        # Detection 앵커: [900, 4] 동차 좌표
+        det_anchors_homo = torch.cat(
+            [self.det_anchors, torch.ones(N_det, 1, device=device)], dim=-1
+        )
+        
+        # Mapping 앵커: [100, 20, 2] → 중심점 [100, 2] → z=0 추가 → [100, 4]
+        map_centers = self.map_anchors.mean(dim=1)  # 20개 점의 평균 = 폴리라인 중심 [100, 2]
+        map_centers_3d = torch.cat(
+            [map_centers, torch.zeros(N_map, 1, device=device)], dim=-1
+        )  # z=0 추가 → [100, 3]
+        map_centers_homo = torch.cat(
+            [map_centers_3d, torch.ones(N_map, 1, device=device)], dim=-1
+        )  # 동차 좌표 → [100, 4]
+        
+        # 특징 수집 버퍼
+        det_agg_features = torch.zeros(N_det, 256, device=device)
+        map_agg_features = torch.zeros(N_map, 256, device=device)
+        valid_cams = 0
 
         for cam_idx in range(6):
-            cam_img = images[0, cam_idx]          # [3, 224, 224]
-            if cam_img.abs().sum() < 1e-6:        # 빈 슬롯 스킵
+            cam_img = images[0, cam_idx]
+            if cam_img.abs().sum() < 1e-6:
                 continue
 
-            # 1. 특징맵 추출
-            features   = self.backbone(cam_img.unsqueeze(0))  # [1,256,56,56]
-            p2_feature = features[0]
+            # 1. 멀티스케일 특징맵 추출 (p2, p3, p4, p5)
+            features_list = self.backbone(cam_img.unsqueeze(0))
 
-            # 2. 앵커 → 이미지 투영
-            E = extrinsics[0, cam_idx]   # [4, 4]
-            K = intrinsics[0, cam_idx]   # [3, 3]
+            E = extrinsics[0, cam_idx]
+            K = intrinsics[0, cam_idx]
 
-            points_cam = (E @ anchors_homo.T).T          # [900, 4]
-            points_2d  = (K @ points_cam[:, :3].T).T     # [900, 3]
-            depth = points_2d[:, 2]
-            u = points_2d[:, 0] / (depth + 1e-6)
-            v = points_2d[:, 1] / (depth + 1e-6)
+            # 2. Detection 앵커 샘플링 (멀티스케일)
+            det_points_cam = (E @ det_anchors_homo.T).T
+            det_points_2d  = (K @ det_points_cam[:, :3].T).T
+            det_depth = det_points_2d[:, 2]
+            det_u = det_points_2d[:, 0] / (det_depth + 1e-6)
+            det_v = det_points_2d[:, 1] / (det_depth + 1e-6)
+            det_valid = det_depth > 0.1
+            
+            det_u_norm = (det_u / 640.0) * 2.0 - 1.0
+            det_v_norm = (det_v / 480.0) * 2.0 - 1.0
+            det_grid = torch.stack([det_u_norm, det_v_norm], dim=-1).view(1, 1, N_det, 2)
+            
+            det_sampled = sample_from_multiscale(features_list, det_grid, det_valid, N_det)
 
-            # depth > 0 인 것만 유효
-            valid_mask = depth > 0.1   # [900] bool
+            # 3. Mapping 앵커 샘플링 (멀티스케일)
+            map_points_cam = (E @ map_centers_homo.T).T
+            map_points_2d  = (K @ map_points_cam[:, :3].T).T
+            map_depth = map_points_2d[:, 2]
+            map_u = map_points_2d[:, 0] / (map_depth + 1e-6)
+            map_v = map_points_2d[:, 1] / (map_depth + 1e-6)
+            map_valid = map_depth > 0.1
+            
+            map_u_norm = (map_u / 640.0) * 2.0 - 1.0
+            map_v_norm = (map_v / 480.0) * 2.0 - 1.0
+            map_grid = torch.stack([map_u_norm, map_v_norm], dim=-1).view(1, 1, N_map, 2)
+            
+            map_sampled = sample_from_multiscale(features_list, map_grid, map_valid, N_map)
 
-            # 3. 정규화 좌표 [-1, 1] (원본 해상도 기준!)
-            u_norm = (u / 640.0) * 2.0 - 1.0
-            v_norm = (v / 480.0) * 2.0 - 1.0
-            grid   = torch.stack([u_norm, v_norm], dim=-1).view(1, 1, N, 2)
-
-            # 4. 특징 샘플링
-            sampled = F.grid_sample(p2_feature, grid,
-                                    align_corners=False)   # [1,256,1,900]
-            sampled = sampled.view(256, N).T               # [900, 256]
-
-            # ✅ 버그1 수정: in-place 대신 mask 곱하기 (gradient 안전!)
-            mask    = valid_mask.float().unsqueeze(1)      # [900, 1]
-            sampled = sampled * mask                       # [900, 256]
-
-            agg_features += sampled
-            valid_cams   += 1
+            det_agg_features += det_sampled
+            map_agg_features += map_sampled
+            valid_cams += 1
 
         if valid_cams > 0:
-            agg_features = agg_features / valid_cams
+            det_agg_features = det_agg_features / valid_cams
+            map_agg_features = map_agg_features / valid_cams
 
-        pred_classes, pred_boxes = self.decoder(agg_features)
-        return pred_classes, pred_boxes
+        # 4. 디코더 통과
+        det_classes, det_boxes = self.det_decoder(det_agg_features)
+        map_classes, map_lines = self.map_decoder(map_agg_features)
+
+        return det_classes, det_boxes, map_classes, map_lines
 
 
+# ===========================================================
+# 정적 맵 Loss (간단 버전)
+# ===========================================================
+class StaticMapLoss(nn.Module):
+    """
+    정적 맵 디코더의 Loss.
+    GT가 없으면 0을 반환 (아직 라벨이 없는 경우 대비).
+    GT가 있으면 분류 + 폴리라인 회귀 Loss 계산.
+    """
+    def __init__(self):
+        super().__init__()
+        self.cls_loss = nn.CrossEntropyLoss()
+    
+    def forward(self, pred_classes, pred_lines, gt_classes, gt_lines):
+        """
+        pred_classes: [100, 3]
+        pred_lines:   [100, 20, 2]    ← 2D (x,y)
+        gt_classes:    [M]             (없으면 빈 텐서)
+        gt_lines:      [M, 20, 2]     (없으면 빈 텐서)
+        """
+        device = pred_classes.device
+        
+        if gt_classes is None or gt_classes.shape[0] == 0:
+            zero = torch.tensor(0.0, device=device, requires_grad=True)
+            return zero
+        
+        # 간단한 매칭: GT 개수만큼 앞쪽 앵커에 매칭 (향후 Hungarian으로 개선)
+        M = min(gt_classes.shape[0], pred_classes.shape[0])
+        
+        loss_cls = self.cls_loss(pred_classes[:M], gt_classes[:M])
+        loss_reg = F.l1_loss(pred_lines[:M], gt_lines[:M])
+        
+        return loss_cls + 5.0 * loss_reg
+
+
+# ===========================================================
+# 학습 루프
+# ===========================================================
 if __name__ == "__main__":
-    print("🚗 MORAI 자율주행 3D Detection 학습을 시작합니다! 🚗\n")
+    print("🚗 SparseDrive 인지 모듈 학습을 시작합니다! 🚗")
+    print("   - Detection: Focal Loss + 배경 클래스")
+    print("   - Online Mapping: 정적 맵 디코더 연결")
+    print("   - 멀티스케일 특징 활용 (p2~p5)\n")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[디바이스] {device}\n")
@@ -92,12 +243,17 @@ if __name__ == "__main__":
     dataset    = MoraiDataset(dataset_dir='./dataset', split='train')
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True,
                             collate_fn=morai_collate_fn, num_workers=2)
-    criterion  = CustomLoss().to(device)
-    optimizer  = optim.AdamW(model.parameters(), lr=1e-3)
-
+    
+    # Detection Loss (Focal Loss + 배경)
+    det_criterion = CustomLoss(num_classes=3).to(device)
+    
+    # Static Map Loss (GT 없으면 자동으로 0 반환)
+    map_criterion = StaticMapLoss().to(device)
+    
+    optimizer = optim.AdamW(model.parameters(), lr=1e-3)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
 
-    num_epochs   = 50
+    num_epochs   = 200
     best_loss    = float('inf')
     loss_history = []
 
@@ -112,27 +268,46 @@ if __name__ == "__main__":
             extrinsics = batch['extrinsics'].to(device)
 
             batch_loss     = 0.0
-            batch_cls_loss = 0.0
-            batch_box_loss = 0.0
+            batch_det_loss = 0.0
+            batch_map_loss = 0.0
             n = len(batch['dynamic_gt_boxes'])
 
             for i in range(n):
                 gt_boxes   = batch['dynamic_gt_boxes'][i].to(device)
                 gt_classes = batch['dynamic_gt_labels'][i].to(device)
 
-                pred_classes, pred_boxes = model(
+                # 정적 맵 GT (아직 라벨이 없으면 빈 텐서)
+                static_gt_classes = batch.get('static_gt_labels', [None])[i] if 'static_gt_labels' in batch else None
+                static_gt_lines   = batch.get('static_gt_polylines', [None])[i] if 'static_gt_polylines' in batch else None
+                
+                if static_gt_classes is not None:
+                    static_gt_classes = static_gt_classes.to(device)
+                if static_gt_lines is not None:
+                    static_gt_lines = static_gt_lines.to(device)
+
+                # Forward (Detection + Mapping 동시)
+                det_classes, det_boxes, map_classes, map_lines = model(
                     images[i:i+1],
                     intrinsics[i:i+1],
                     extrinsics[i:i+1]
                 )
 
-                loss, cls_loss, box_loss = criterion(
-                    pred_classes, pred_boxes, gt_classes, gt_boxes
+                # Detection Loss
+                det_loss, cls_loss, box_loss = det_criterion(
+                    det_classes, det_boxes, gt_classes, gt_boxes
                 )
 
-                batch_loss     += loss
-                batch_cls_loss += cls_loss.item()
-                batch_box_loss += box_loss.item()
+                # Static Map Loss (GT 없으면 0)
+                map_loss = map_criterion(
+                    map_classes, map_lines, static_gt_classes, static_gt_lines
+                )
+
+                # SparseDrive 논문과 동일: L = Ldet + Lmap
+                total_loss = det_loss + map_loss
+
+                batch_loss     += total_loss
+                batch_det_loss += det_loss.item()
+                batch_map_loss += map_loss.item()
 
             batch_loss = batch_loss / n
 
@@ -145,8 +320,8 @@ if __name__ == "__main__":
 
             if step % 10 == 0:
                 print(f"  Step {step:03d} | Loss: {batch_loss.item():.4f} "
-                      f"(분류: {batch_cls_loss/n:.4f}, "
-                      f"박스: {batch_box_loss/n:.4f})")
+                      f"(Det: {batch_det_loss/n:.4f}, "
+                      f"Map: {batch_map_loss/n:.4f})")
 
         scheduler.step()
 

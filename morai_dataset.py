@@ -48,28 +48,29 @@ _EXTRINSICS = {k: _compute_extrinsic(v['offset_xyz'], v['rpy_deg']) for k, v in 
 
 
 # ===========================================================
-# MoraiDataset — 6대 카메라 1묶음 버전
+# MoraiDataset — Detection + Static Mapping 지원
 # ===========================================================
 class MoraiDataset(Dataset):
     """
-    frame_groups.json 기반으로 같은 타임스탬프의
-    6대 카메라를 한 번에 로드합니다.
-
+    수정사항: 정적 맵 GT 필드 추가
+    
     __getitem__ 반환:
-        images     : [6, 3, 224, 224]  (없는 카메라 슬롯은 0)
-        intrinsics : [6, 3, 3]
-        extrinsics : [6, 4, 4]
-        dynamic_gt_boxes  : [N, 11]
-        dynamic_gt_labels : [N]
-        stem       : str (cam_front 기준 파일명)
+        images              : [6, 3, 224, 224]
+        intrinsics          : [6, 3, 3]
+        extrinsics          : [6, 4, 4]
+        dynamic_gt_boxes    : [N, 11]        동적 객체 3D 박스
+        dynamic_gt_labels   : [N]            동적 객체 클래스
+        static_gt_polylines : [M, 20, 3]     정적 맵 폴리라인 (없으면 [0, 20, 3])
+        static_gt_labels    : [M]            정적 맵 클래스 (없으면 [0])
+        stem                : str
     """
 
     def __init__(self, dataset_dir='./dataset', split='train', val_ratio=0.1):
-        self.img_dir = os.path.join(dataset_dir, 'images')
-        self.lbl_dir = os.path.join(dataset_dir, 'labels_3d')
-        groups_path  = os.path.join(dataset_dir, 'frame_groups.json')
+        self.img_dir    = os.path.join(dataset_dir, 'images')
+        self.lbl_dir    = os.path.join(dataset_dir, 'labels_3d')
+        self.static_dir = os.path.join(dataset_dir, 'labels_static')  # 정적 맵 라벨 폴더
+        groups_path     = os.path.join(dataset_dir, 'frame_groups.json')
 
-        # ── frame_groups.json 존재 여부 확인 ─────────────────
         if not os.path.isfile(groups_path):
             raise FileNotFoundError(
                 f"\n[ERROR] {groups_path} 파일이 없습니다!\n"
@@ -80,19 +81,23 @@ class MoraiDataset(Dataset):
         with open(groups_path) as f:
             all_groups = json.load(f)
 
-        # ── train / val 분리 ─────────────────────────────────
         n_val   = max(1, int(len(all_groups) * val_ratio))
         n_train = len(all_groups) - n_val
         self.groups = all_groups[:n_train] if split == 'train' else all_groups[n_train:]
 
-        print(f"[MoraiDataset] {split} : {len(self.groups):,} 그룹 "
-              f"(각 그룹 = 6대 카메라 1묶음) 로드 완료")
+        # 정적 맵 라벨 존재 여부 확인
+        self.has_static = os.path.isdir(self.static_dir)
+        if self.has_static:
+            print(f"[MoraiDataset] ✅ 정적 맵 라벨 폴더 발견: {self.static_dir}")
+        else:
+            print(f"[MoraiDataset] ⚠️ 정적 맵 라벨 없음 (Mapping Loss = 0으로 처리)")
+
+        print(f"[MoraiDataset] {split} : {len(self.groups):,} 그룹 로드 완료")
 
     def __len__(self):
         return len(self.groups)
 
     def _load_image(self, stem):
-        """이미지 로드 → [3, 224, 224] float tensor"""
         path    = os.path.join(self.img_dir, f"{stem}.jpg")
         img_bgr = cv2.imread(path)
         if img_bgr is None:
@@ -101,9 +106,49 @@ class MoraiDataset(Dataset):
         img_rs  = cv2.resize(img_rgb, (IMG_SIZE, IMG_SIZE))
         return torch.from_numpy(img_rs).permute(2, 0, 1).float() / 255.0
 
+    def _load_static_labels(self, stem):
+        """
+        정적 맵 라벨 로드.
+        라벨 형식 (labels_static/*.txt):
+            class_id x0 y0 z0 x1 y1 z1 ... x19 y19 z19
+            (1 + 60 = 61개 값, 공백 구분)
+        
+        아직 라벨 파일이 없으면 빈 텐서 반환.
+        """
+        POINTS_PER_LINE = 20
+        
+        if not self.has_static:
+            return (torch.zeros((0, POINTS_PER_LINE, 2), dtype=torch.float32),
+                    torch.zeros((0,), dtype=torch.long))
+        
+        lbl_path = os.path.join(self.static_dir, f"{stem}.txt")
+        if not os.path.isfile(lbl_path):
+            return (torch.zeros((0, POINTS_PER_LINE, 2), dtype=torch.float32),
+                    torch.zeros((0,), dtype=torch.long))
+        
+        polylines, labels = [], []
+        with open(lbl_path) as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) != 41:  # 1(class) + 20*2(x,y) = 41
+                    continue
+                cls_id = int(float(parts[0]))
+                coords = list(map(float, parts[1:]))
+                # 40개 값을 [20, 2]으로 reshape
+                polyline = np.array(coords, dtype=np.float32).reshape(POINTS_PER_LINE, 2)
+                polylines.append(polyline)
+                labels.append(cls_id)
+        
+        if polylines:
+            return (torch.tensor(np.array(polylines), dtype=torch.float32),
+                    torch.tensor(labels, dtype=torch.long))
+        else:
+            return (torch.zeros((0, POINTS_PER_LINE, 2), dtype=torch.float32),
+                    torch.zeros((0,), dtype=torch.long))
+
     def __getitem__(self, idx):
         group = self.groups[idx]
-        cams  = group['cams']           # {cam_name: stem}
+        cams  = group['cams']
         label_stem = group['label_stem']
 
         # ── 6대 카메라 이미지 로드 ────────────────────────────
@@ -119,7 +164,7 @@ class MoraiDataset(Dataset):
             intrinsics[ci] = torch.from_numpy(_INTRINSICS[cam_name])
             extrinsics[ci] = torch.from_numpy(_EXTRINSICS[cam_name])
 
-        # ── 라벨 로드 (cam_front 기준, Ego 좌표계) ───────────
+        # ── 동적 객체 라벨 로드 ──────────────────────────────
         lbl_path = os.path.join(self.lbl_dir, f"{label_stem}.txt")
         boxes, labels = [], []
 
@@ -141,13 +186,18 @@ class MoraiDataset(Dataset):
             gt_boxes  = torch.zeros((0, 11), dtype=torch.float32)
             gt_labels = torch.zeros((0,),    dtype=torch.long)
 
+        # ── 정적 맵 라벨 로드 ────────────────────────────────
+        static_polylines, static_labels = self._load_static_labels(label_stem)
+
         return {
-            'images':            images,
-            'intrinsics':        intrinsics,
-            'extrinsics':        extrinsics,
-            'dynamic_gt_boxes':  gt_boxes,
-            'dynamic_gt_labels': gt_labels,
-            'stem':              label_stem,
+            'images':              images,
+            'intrinsics':          intrinsics,
+            'extrinsics':          extrinsics,
+            'dynamic_gt_boxes':    gt_boxes,
+            'dynamic_gt_labels':   gt_labels,
+            'static_gt_polylines': static_polylines,
+            'static_gt_labels':    static_labels,
+            'stem':                label_stem,
         }
 
 
@@ -156,20 +206,22 @@ class MoraiDataset(Dataset):
 # ===========================================================
 def morai_collate_fn(batch):
     return {
-        'images':            torch.stack([b['images']     for b in batch]),
-        'intrinsics':        torch.stack([b['intrinsics'] for b in batch]),
-        'extrinsics':        torch.stack([b['extrinsics'] for b in batch]),
-        'dynamic_gt_boxes':  [b['dynamic_gt_boxes']  for b in batch],
-        'dynamic_gt_labels': [b['dynamic_gt_labels'] for b in batch],
-        'stem':              [b['stem'] for b in batch],
+        'images':              torch.stack([b['images']     for b in batch]),
+        'intrinsics':          torch.stack([b['intrinsics'] for b in batch]),
+        'extrinsics':          torch.stack([b['extrinsics'] for b in batch]),
+        'dynamic_gt_boxes':    [b['dynamic_gt_boxes']    for b in batch],
+        'dynamic_gt_labels':   [b['dynamic_gt_labels']   for b in batch],
+        'static_gt_polylines': [b['static_gt_polylines'] for b in batch],
+        'static_gt_labels':    [b['static_gt_labels']    for b in batch],
+        'stem':                [b['stem'] for b in batch],
     }
 
 
 # ===========================================================
-# 테스트 실행
+# 테스트
 # ===========================================================
 if __name__ == "__main__":
-    print("🚀 MoraiDataset (6대 카메라 묶음) 테스트!\n")
+    print("🚀 MoraiDataset (Detection + Static Mapping) 테스트!\n")
 
     train_ds = MoraiDataset(dataset_dir='./dataset', split='train')
     val_ds   = MoraiDataset(dataset_dir='./dataset', split='val')
@@ -178,19 +230,14 @@ if __name__ == "__main__":
                         collate_fn=morai_collate_fn)
 
     for batch in loader:
-        print(f"이미지 텐서 : {batch['images'].shape}")
-        print(f"Intrinsic  : {batch['intrinsics'].shape}")
-        print(f"Extrinsic  : {batch['extrinsics'].shape}")
-        print(f"GT 박스    : {batch['dynamic_gt_boxes'][0].shape}")
-        print(f"GT 라벨    : {batch['dynamic_gt_labels'][0]}")
-        print(f"파일명     : {batch['stem'][0]}")
-
-        # 카메라별 유효 슬롯 확인
-        imgs = batch['images'][0]  # [6, 3, 224, 224]
-        for ci, cam in enumerate(['cam_front','cam_front_left','cam_front_right',
-                                   'cam_back','cam_back_left','cam_back_right']):
-            filled = imgs[ci].abs().sum().item() > 0
-            print(f"  {cam:20s}: {'✅ 이미지 있음' if filled else '⬜ 빈 슬롯'}")
+        print(f"이미지 텐서      : {batch['images'].shape}")
+        print(f"Intrinsic        : {batch['intrinsics'].shape}")
+        print(f"Extrinsic        : {batch['extrinsics'].shape}")
+        print(f"동적 GT 박스     : {batch['dynamic_gt_boxes'][0].shape}")
+        print(f"동적 GT 라벨     : {batch['dynamic_gt_labels'][0]}")
+        print(f"정적 GT 폴리라인 : {batch['static_gt_polylines'][0].shape}")
+        print(f"정적 GT 라벨     : {batch['static_gt_labels'][0]}")
+        print(f"파일명           : {batch['stem'][0]}")
         break
 
-    print("\n✅ 6대 카메라 묶음 데이터 로더 정상 동작!")
+    print("\n✅ Detection + Static Mapping 데이터 로더 정상 동작!")
