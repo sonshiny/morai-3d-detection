@@ -28,14 +28,21 @@ class FocalLoss(nn.Module):
         self.alpha = alpha   # 클래스 불균형 보정 (배경이 압도적으로 많으니까)
         self.gamma = gamma   # 쉬운 샘플 억제 강도
 
-    def forward(self, pred_logits, target):
+    def forward(self, pred_logits, target, num_fg=None):
         """
         pred_logits: [N, num_classes+1]  (배경 포함)
         target:      [N]                 (0~2=객체, 3=배경)
+        num_fg:      FG 샘플 수 (정규화용, None이면 mean 사용)
+
+        핵심: num_fg로 정규화해야 FG 신호가 희석되지 않음
+        예) FG 3개 loss=1.0 → mean=0.003(900분의1) vs sum/3=1.0(300배 차이)
         """
         ce_loss = F.cross_entropy(pred_logits, target, reduction='none')
-        pt = torch.exp(-ce_loss)  # 맞출 확률
+        pt = torch.exp(-ce_loss)
         focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
+        if num_fg is not None:
+            # FG 개수로 정규화 (DETR, SparseDrive 표준 방식)
+            return focal_loss.sum() / num_fg.clamp(min=1).float()
         return focal_loss.mean()
 
 
@@ -137,7 +144,7 @@ class CustomLoss(nn.Module):
         self.num_classes = num_classes   # 객체 클래스 수 (car, truck, bus)
         self.bg_class    = num_classes   # 배경 클래스 ID = 3
         self.matcher     = HungarianMatcher()
-        self.focal_loss  = FocalLoss(alpha=0.25, gamma=2.0)
+        self.focal_loss  = FocalLoss(alpha=1.0, gamma=2.0)  # num_fg 정규화 사용 → alpha로 FG 억제 불필요
         self.bg_weight   = bg_weight    # 배경 Loss 가중치 (너무 크면 전부 배경으로 예측)
 
     def forward(self, pred_classes, pred_boxes, gt_classes, gt_boxes):
@@ -164,22 +171,25 @@ class CustomLoss(nn.Module):
         pred_idx = pred_idx.to(device)
         gt_idx   = gt_idx.to(device)
 
-        # ── 분류 Loss (전체 900개 앵커) ───────────────────
+        # ── 분류 Loss (FG/BG 균형 처리) ─────────────────────
         # 기본: 전부 배경으로 설정
         target = torch.full((num_anchors,), self.bg_class,
                             dtype=torch.long, device=device)
         # 매칭된 앵커만 실제 GT 클래스로 덮어쓰기
         target[pred_idx] = gt_classes[gt_idx]
 
-        loss_class = self.focal_loss(pred_classes, target)
+        # FG 개수 (정규화 기준)
+        num_fg = torch.tensor(len(pred_idx), device=device)
+
+        # Focal Loss를 FG 개수로 정규화
+        # → FG 3개 신호가 900으로 희석되지 않음 (DETR/SparseDrive 표준)
+        loss_class = self.focal_loss(pred_classes, target, num_fg=num_fg)
 
         # ── 박스 Loss (매칭된 앵커만) ─────────────────────
         scale     = torch.tensor(BOX_SCALE, device=device)
         loss_bbox = F.l1_loss(pred_boxes[pred_idx] / scale,
                               gt_boxes[gt_idx]     / scale)
 
-        # SparseDrive 논문 Section 2.9: λ_det_cls=2.0, λ_det_reg=0.25
-        # 이전: 1.0*cls + 5.0*reg → reg 가중치가 논문 대비 20배 과도
         total_loss = 2.0 * loss_class + 0.25 * loss_bbox
         return total_loss, loss_class, loss_bbox
 
