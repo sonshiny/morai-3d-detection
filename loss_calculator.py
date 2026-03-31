@@ -3,45 +3,23 @@ import torch.nn as nn
 import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
 
-# 정규화 스케일 (전역 상수로 관리)
-BOX_SCALE = [50., 50., 3.,   # x, y, z
-              5.,  5., 3.,   # w, l, h
-              1.,  1.,       # sin, cos
-             30., 30., 5.]   # vx, vy, vz
+BOX_SCALE = [50., 50., 3.,
+             5.,  5., 3.,
+             1.,  1.,
+             30., 30., 5.]
 
 
-# ===========================================================
-# Focal Loss (SparseDrive 논문과 동일)
-# ===========================================================
 class FocalLoss(nn.Module):
-    """
-    배경 클래스까지 포함하는 Focal Loss.
-    쉬운 샘플(이미 잘 맞추는 것)의 Loss를 줄이고,
-    어려운 샘플(아직 못 맞추는 것)에 집중하게 만든다.
-    
-    기존 CrossEntropyLoss와의 차이:
-    - CE: 모든 샘플에 동일한 가중치
-    - Focal: 잘 맞추는 샘플은 가중치↓, 못 맞추는 샘플은 가중치↑
-    """
     def __init__(self, alpha=0.25, gamma=2.0):
         super().__init__()
-        self.alpha = alpha   # 클래스 불균형 보정 (배경이 압도적으로 많으니까)
-        self.gamma = gamma   # 쉬운 샘플 억제 강도
+        self.alpha = alpha
+        self.gamma = gamma
 
     def forward(self, pred_logits, target, num_fg=None):
-        """
-        pred_logits: [N, num_classes+1]  (배경 포함)
-        target:      [N]                 (0~2=객체, 3=배경)
-        num_fg:      FG 샘플 수 (정규화용, None이면 mean 사용)
-
-        핵심: num_fg로 정규화해야 FG 신호가 희석되지 않음
-        예) FG 3개 loss=1.0 → mean=0.003(900분의1) vs sum/3=1.0(300배 차이)
-        """
         ce_loss = F.cross_entropy(pred_logits, target, reduction='none')
         pt = torch.exp(-ce_loss)
         focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
         if num_fg is not None:
-            # FG 개수로 정규화 (DETR, SparseDrive 표준 방식)
             return focal_loss.sum() / num_fg.clamp(min=1).float()
         return focal_loss.mean()
 
@@ -50,44 +28,58 @@ class HungarianMatcher(nn.Module):
     def __init__(self, cost_class=1.0, cost_bbox=5.0):
         super().__init__()
         self.cost_class = cost_class
-        self.cost_bbox  = cost_bbox
+        self.cost_bbox = cost_bbox
 
     @torch.no_grad()
     def forward(self, pred_classes, pred_boxes, gt_classes, gt_boxes):
         """
-        pred_classes : [900, num_classes+1]  (배경 포함)
+        pred_classes : [900, num_classes+1]
         pred_boxes   : [900, 11]
         gt_classes   : [N]
         gt_boxes     : [N, 11]
         """
-        if gt_boxes.shape[0] == 0:
-            device = pred_classes.device
-            return (torch.zeros(0, dtype=torch.int64, device=device),
-                    torch.zeros(0, dtype=torch.int64, device=device))
+        device = pred_classes.device
 
-        device = pred_boxes.device
-        scale  = torch.tensor(BOX_SCALE, device=device)
+        if gt_boxes is None or gt_classes is None:
+            empty = torch.zeros(0, dtype=torch.int64, device=device)
+            return empty, empty
 
-        # 분류 비용: 배경 제외한 객체 클래스만 사용
-        out_prob   = pred_classes.softmax(-1)
-        cost_class = -out_prob[:, gt_classes]   # GT 클래스에 대한 확률
+        gt_boxes = gt_boxes.to(device=device, dtype=pred_boxes.dtype)
 
-        # 박스 비용: 정규화된 값으로 계산
-        pred_norm  = pred_boxes / scale
-        gt_norm    = gt_boxes   / scale
-        cost_bbox  = torch.cdist(pred_norm, gt_norm, p=1)
+        if not torch.is_tensor(gt_classes):
+            gt_classes = torch.as_tensor(gt_classes, device=device)
+        else:
+            gt_classes = gt_classes.to(device=device)
+
+        if gt_classes.ndim > 1:
+            gt_classes = gt_classes.squeeze(-1)
+
+        gt_classes = gt_classes.long().view(-1)
+
+        if gt_boxes.shape[0] == 0 or gt_classes.shape[0] == 0:
+            empty = torch.zeros(0, dtype=torch.int64, device=device)
+            return empty, empty
+
+        scale = torch.tensor(BOX_SCALE, device=device, dtype=pred_boxes.dtype)
+
+        out_prob = pred_classes.softmax(-1)
+        gt_classes = gt_classes.clamp(min=0, max=pred_classes.shape[-1] - 1)
+        cost_class = -out_prob[:, gt_classes]
+
+        pred_norm = pred_boxes / scale
+        gt_norm = gt_boxes / scale
+        cost_bbox = torch.cdist(pred_norm, gt_norm, p=1)
 
         C = self.cost_class * cost_class + self.cost_bbox * cost_bbox
-        C = C.cpu().numpy()
+        C = C.detach().cpu().numpy()
 
         pred_indices, gt_indices = linear_sum_assignment(C)
-        return (torch.as_tensor(pred_indices, dtype=torch.int64),
-                torch.as_tensor(gt_indices,   dtype=torch.int64))
+        return (
+            torch.as_tensor(pred_indices, dtype=torch.int64, device=device),
+            torch.as_tensor(gt_indices, dtype=torch.int64, device=device),
+        )
 
 
-# ===========================================================
-# 정적 맵 전용 헝가리안 매칭 (Map Hungarian Matcher)
-# ===========================================================
 class MapHungarianMatcher(nn.Module):
     def __init__(self, cost_class=2.0, cost_line=5.0):
         super().__init__()
@@ -102,93 +94,111 @@ class MapHungarianMatcher(nn.Module):
         gt_classes   : [N]
         gt_lines     : [N, 20, 2]
         """
-        if gt_classes is None or gt_classes.shape[0] == 0:
-            device = pred_classes.device
-            return (torch.zeros(0, dtype=torch.int64, device=device),
-                    torch.zeros(0, dtype=torch.int64, device=device))
-
         device = pred_classes.device
-        num_queries = pred_classes.shape[0] # 100개 앵커
 
-        # 1. 분류 비용 (정답 클래스를 얼마나 높게 예측했는가?)
+        if gt_classes is None or gt_lines is None:
+            empty = torch.zeros(0, dtype=torch.int64, device=device)
+            return empty, empty
+
+        gt_lines = gt_lines.to(device=device, dtype=pred_lines.dtype)
+
+        if not torch.is_tensor(gt_classes):
+            gt_classes = torch.as_tensor(gt_classes, device=device)
+        else:
+            gt_classes = gt_classes.to(device=device)
+
+        if gt_classes.ndim > 1:
+            gt_classes = gt_classes.squeeze(-1)
+
+        gt_classes = gt_classes.long().view(-1)
+
+        if gt_classes.shape[0] == 0 or gt_lines.shape[0] == 0:
+            empty = torch.zeros(0, dtype=torch.int64, device=device)
+            return empty, empty
+
+        num_queries = pred_classes.shape[0]
+
         out_prob = pred_classes.softmax(-1)
-        cost_class = -out_prob[:, gt_classes] # [100, N] 행렬
+        gt_classes = gt_classes.clamp(min=0, max=pred_classes.shape[-1] - 1)
+        cost_class = -out_prob[:, gt_classes]
 
-        # 2. 선형 회귀 비용 (선 모양이 얼마나 비슷한가?)
-        # 20개의 (x,y) 점을 40개의 숫자로 쫙 펼쳐서 L1 거리(차이)를 계산합니다.
-        pred_lines_flat = (pred_lines / polyline_scale).view(num_queries, -1)
-        gt_lines_flat = (gt_lines / polyline_scale).view(gt_classes.shape[0], -1)
-        cost_line = torch.cdist(pred_lines_flat, gt_lines_flat, p=1) # [100, N] 행렬
+        pred_lines_flat = (pred_lines / polyline_scale).reshape(num_queries, -1)
+        gt_lines_flat = (gt_lines / polyline_scale).reshape(gt_classes.shape[0], -1)
+        cost_line = torch.cdist(pred_lines_flat, gt_lines_flat, p=1)
 
-        # 3. 최종 비용 행렬 계산 (분류 + 회귀)
         C = self.cost_class * cost_class + self.cost_line * cost_line
-        C = C.cpu().numpy()
+        C = C.detach().cpu().numpy()
 
-        # 4. scipy의 linear_sum_assignment를 이용해 최적의 짝꿍 맺어주기
         pred_indices, gt_indices = linear_sum_assignment(C)
-        return (torch.as_tensor(pred_indices, dtype=torch.int64),
-                torch.as_tensor(gt_indices, dtype=torch.int64))
+        return (
+            torch.as_tensor(pred_indices, dtype=torch.int64, device=device),
+            torch.as_tensor(gt_indices, dtype=torch.int64, device=device),
+        )
+
 
 class CustomLoss(nn.Module):
-    """
-    수정된 Loss:
-    1. Focal Loss로 교체 (배경 클래스 포함)
-    2. 매칭 안 된 앵커를 배경(no-object)으로 학습
-    
-    이전 코드와의 차이:
-    - 이전: 매칭된 5~10개만 Loss → 890개 앵커는 학습 신호 0
-    - 지금: 전체 900개 앵커에 Loss → 배경 앵커도 "여기엔 없다"를 학습
-    """
-    def __init__(self, num_classes=3, bg_weight=0.1):
+    def __init__(self, num_classes=1, bg_weight=0.1):
         super().__init__()
-        self.num_classes = num_classes   # 객체 클래스 수 (car, truck, bus)
-        self.bg_class    = num_classes   # 배경 클래스 ID = 3
-        self.matcher     = HungarianMatcher()
-        self.focal_loss  = FocalLoss(alpha=1.0, gamma=2.0)  # num_fg 정규화 사용 → alpha로 FG 억제 불필요
-        self.bg_weight   = bg_weight    # 배경 Loss 가중치 (너무 크면 전부 배경으로 예측)
+        self.num_classes = num_classes
+        self.bg_class = num_classes
+        self.matcher = HungarianMatcher()
+        self.focal_loss = FocalLoss(alpha=1.0, gamma=2.0)
+        self.bg_weight = bg_weight
 
     def forward(self, pred_classes, pred_boxes, gt_classes, gt_boxes):
         """
-        pred_classes: [900, num_classes+1]  ← 디코더 출력이 4로 바뀌어야 함!
+        pred_classes: [900, 2]
         pred_boxes:   [900, 11]
-        gt_classes:    [N]   (0=car, 1=truck, 2=bus)
-        gt_boxes:      [N, 11]
+        gt_classes:   [N]
+        gt_boxes:     [N, 11]
         """
         device = pred_classes.device
-        num_anchors = pred_classes.shape[0]  # 900
+        num_anchors = pred_classes.shape[0]
 
-        # ── GT가 비어있는 경우: 전부 배경 ──────────────────
-        if gt_boxes.shape[0] == 0:
-            target = torch.full((num_anchors,), self.bg_class,
-                                dtype=torch.long, device=device)
+        gt_boxes = gt_boxes.to(device=device, dtype=pred_boxes.dtype)
+
+        if not torch.is_tensor(gt_classes):
+            gt_classes = torch.as_tensor(gt_classes, device=device)
+        else:
+            gt_classes = gt_classes.to(device=device)
+
+        if gt_classes.ndim > 1:
+            gt_classes = gt_classes.squeeze(-1)
+
+        gt_classes = gt_classes.long().view(-1)
+
+        if gt_boxes.shape[0] == 0 or gt_classes.shape[0] == 0:
+            target = torch.full(
+                (num_anchors,),
+                self.bg_class,
+                dtype=torch.long,
+                device=device
+            )
             loss_class = self.focal_loss(pred_classes, target) * self.bg_weight
-            zero = torch.tensor(0.0, device=device, requires_grad=True)
+            zero = torch.tensor(0.0, device=device)
             return loss_class, loss_class, zero
 
-        # ── Hungarian Matching ────────────────────────────
-        pred_idx, gt_idx = self.matcher(pred_classes, pred_boxes,
-                                        gt_classes, gt_boxes)
-        pred_idx = pred_idx.to(device)
-        gt_idx   = gt_idx.to(device)
+        pred_idx, gt_idx = self.matcher(pred_classes, pred_boxes, gt_classes, gt_boxes)
 
-        # ── 분류 Loss (FG/BG 균형 처리) ─────────────────────
-        # 기본: 전부 배경으로 설정
-        target = torch.full((num_anchors,), self.bg_class,
-                            dtype=torch.long, device=device)
-        # 매칭된 앵커만 실제 GT 클래스로 덮어쓰기
+        target = torch.full(
+            (num_anchors,),
+            self.bg_class,
+            dtype=torch.long,
+            device=device
+        )
         target[pred_idx] = gt_classes[gt_idx]
 
-        # FG 개수 (정규화 기준)
         num_fg = torch.tensor(len(pred_idx), device=device)
-
-        # Focal Loss를 FG 개수로 정규화
-        # → FG 3개 신호가 900으로 희석되지 않음 (DETR/SparseDrive 표준)
         loss_class = self.focal_loss(pred_classes, target, num_fg=num_fg)
 
-        # ── 박스 Loss (매칭된 앵커만) ─────────────────────
-        scale     = torch.tensor(BOX_SCALE, device=device)
-        loss_bbox = F.l1_loss(pred_boxes[pred_idx] / scale,
-                              gt_boxes[gt_idx]     / scale)
+        if len(pred_idx) == 0:
+            loss_bbox = torch.tensor(0.0, device=device)
+        else:
+            scale = torch.tensor(BOX_SCALE, device=device, dtype=pred_boxes.dtype)
+            loss_bbox = F.l1_loss(
+                pred_boxes[pred_idx] / scale,
+                gt_boxes[gt_idx] / scale
+            )
 
         total_loss = 2.0 * loss_class + 0.25 * loss_bbox
         return total_loss, loss_class, loss_bbox
@@ -197,24 +207,22 @@ class CustomLoss(nn.Module):
 if __name__ == "__main__":
     print("🚀 Focal Loss + 배경 클래스 Loss 테스트!\n")
 
-    # num_classes+1 = 4 (car, truck, bus, background)
-    dummy_pred_classes = torch.randn(900, 4)   # ← 3이 아니라 4!
-    dummy_pred_boxes   = torch.randn(900, 11)
-    dummy_gt_classes   = torch.randint(0, 3, (5,))
-    dummy_gt_boxes     = torch.randn(5, 11)
+    dummy_pred_classes = torch.randn(900, 2)
+    dummy_pred_boxes = torch.randn(900, 11)
+    dummy_gt_classes = torch.randint(0, 1, (5,), dtype=torch.long)
+    dummy_gt_boxes = torch.randn(5, 11)
 
-    criterion = CustomLoss(num_classes=3)
+    criterion = CustomLoss(num_classes=1)
     total_loss, cls_loss, box_loss = criterion(
         dummy_pred_classes, dummy_pred_boxes,
-        dummy_gt_classes,   dummy_gt_boxes
+        dummy_gt_classes, dummy_gt_boxes
     )
     print(f"✅ 분류 Loss (Focal) : {cls_loss.item():.4f}")
     print(f"✅ 박스 Loss         : {box_loss.item():.4f}")
     print(f"🔥 총합 Loss         : {total_loss.item():.4f}")
 
-    # 빈 GT 테스트 (전부 배경)
     empty_gt_classes = torch.zeros(0, dtype=torch.long)
-    empty_gt_boxes   = torch.zeros(0, 11)
+    empty_gt_boxes = torch.zeros(0, 11)
     total_loss2, _, _ = criterion(
         dummy_pred_classes, dummy_pred_boxes,
         empty_gt_classes, empty_gt_boxes

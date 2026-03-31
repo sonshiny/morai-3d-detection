@@ -8,7 +8,7 @@ class FFNDecoder(nn.Module):
     - 0: car, 1: truck, 2: bus, 3: background(배경)
     - 배경 클래스가 추가되어야 "여기에 아무것도 없다"를 학습 가능
     """
-    def __init__(self, hidden_dim=256, num_classes=4):  # ← 3에서 4로 변경!
+    def __init__(self, hidden_dim=256, num_classes=2):  
         super(FFNDecoder, self).__init__()
 
         # 1. 분류기 (어떤 차량인가? 또는 배경인가?)

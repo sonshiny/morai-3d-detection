@@ -19,8 +19,8 @@ from camera_configs import (INTRINSICS as _INTRINSICS,
 
 DATASET_DIR  = './dataset'
 SCORE_THRESH = 0.2
-CLASS_NAMES  = {0: 'car', 1: 'truck', 2: 'bus'}
-CLASS_COLORS = {0: (0, 255, 0), 1: (0, 165, 255), 2: (0, 0, 255)}
+CLASS_NAMES  = {0: 'vehicle'}
+CLASS_COLORS = {0: (0, 255, 0)}
 IMG_SIZE     = 224
 
 
@@ -148,12 +148,13 @@ def run_inference(weights_path, stems, out_dir):
                 extrinsics.to(device)
             )
 
-        scores = det_cls.softmax(-1)[:, :3]
-        max_scores, max_cls = scores.max(dim=-1)
-        keep_mask    = max_scores > SCORE_THRESH
-        boxes_cand   = det_box[keep_mask].cpu().numpy()
-        cls_cand     = max_cls[keep_mask].cpu().numpy()
-        scr_cand     = max_scores[keep_mask].cpu().numpy()
+        probs = det_cls.softmax(-1)          # [900, 2] = vehicle/background
+        vehicle_scores = probs[:, 0]         # foreground score만 사용
+        keep_mask = vehicle_scores > SCORE_THRESH
+
+        boxes_cand = det_box[keep_mask].cpu().numpy()
+        cls_cand   = np.zeros(len(boxes_cand), dtype=np.int64)   # 전부 vehicle class 0
+        scr_cand   = vehicle_scores[keep_mask].cpu().numpy()
 
         if len(boxes_cand) > 0:
             nms_idx    = bev_nms(boxes_cand, scr_cand)

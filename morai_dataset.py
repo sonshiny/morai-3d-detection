@@ -38,6 +38,11 @@ class MoraiDataset(Dataset):
         with open(groups_path) as f:
             all_groups = json.load(f)
 
+        # scenario4 제외 (빈 도로, vehicle GT 거의 없음 → detection collapse 원인)
+        before = len(all_groups)
+        all_groups = [g for g in all_groups if g.get('bag_key') != 'scenario4']
+        print(f"[MoraiDataset] scenario4 제외: {before} → {len(all_groups)} 그룹")
+
         n_val   = max(1, int(len(all_groups) * val_ratio))
         n_train = len(all_groups) - n_val
         self.groups = all_groups[:n_train] if split == 'train' \
