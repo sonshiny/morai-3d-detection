@@ -51,7 +51,7 @@ def bev_nms(boxes, scores, iou_thresh=0.3):
     return keep
 
 
-def project_box_to_cam(box_ego, cam_name, orig_w=640, orig_h=480):
+def project_box_to_cam(box_ego, cam_name, orig_w=1600, orig_h=900):
     x, y, z  = box_ego[0], box_ego[1], box_ego[2]
     sx       = np.exp(box_ego[3])   # ln_w → w
     sy       = np.exp(box_ego[4])   # ln_l → l
@@ -126,9 +126,10 @@ def run_inference(weights_path, stems, out_dir):
         group = stem_to_group[stem]
         cams  = group['cams']
 
-        images     = torch.zeros(1, 6, 3, IMG_SIZE, IMG_SIZE)
-        intrinsics = torch.zeros(1, 6, 3, 3)
-        extrinsics = torch.zeros(1, 6, 4, 4)
+        n_cams     = len(CAM_ORDER)
+        images     = torch.zeros(1, n_cams, 3, IMG_SIZE, IMG_SIZE)
+        intrinsics = torch.zeros(1, n_cams, 3, 3)
+        extrinsics = torch.zeros(1, n_cams, 4, 4)
 
         for ci, cam_name in enumerate(CAM_ORDER):
             intrinsics[0, ci] = torch.from_numpy(_INTRINSICS[cam_name])

@@ -30,12 +30,9 @@ DEFAULT_BAGS = [
 ]
 
 CAM_TOPICS = {
-    '/morai/cam_front': 'cam_front',
-    '/morai/cam_front_left': 'cam_front_left',
+    '/morai/cam_front':       'cam_front',
+    '/morai/cam_front_left':  'cam_front_left',
     '/morai/cam_front_right': 'cam_front_right',
-    '/morai/cam_back': 'cam_back',
-    '/morai/cam_back_left': 'cam_back_left',
-    '/morai/cam_back_right': 'cam_back_right',
 }
 
 DATASET_DIR = './dataset'

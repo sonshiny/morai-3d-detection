@@ -13,8 +13,7 @@ from static_decoder import StaticMapDecoder, generate_polyline_anchors
 from loss_calculator import CustomLoss, MapHungarianMatcher
 from torch.utils.data import DataLoader
 
-CAM_ORDER = ['cam_front', 'cam_front_left', 'cam_front_right',
-             'cam_back',  'cam_back_left',  'cam_back_right']
+CAM_ORDER = ['cam_front', 'cam_front_left', 'cam_front_right']
 
 
 # ===========================================================
@@ -174,8 +173,8 @@ class AutoNavModel(nn.Module):
                 det_u = fx * (-det_pts[:, 1]) / (det_depth + 1e-6) + cx
                 det_v = fx * (-det_pts[:, 2]) / (det_depth + 1e-6) + cy
                 det_kp_valid = det_depth > 0.1                # [4500]
-                det_u_n = (det_u / 640.0) * 2.0 - 1.0
-                det_v_n = (det_v / 480.0) * 2.0 - 1.0
+                det_u_n = (det_u / 1600.0) * 2.0 - 1.0
+                det_v_n = (det_v / 900.0) * 2.0 - 1.0
                 det_grid = torch.stack([det_u_n, det_v_n], dim=-1).view(1, 1, N_det * N_kp, 2)
                 det_sampled_kp = sample_from_multiscale(
                     features_list, det_grid, det_kp_valid, N_det * N_kp
@@ -201,8 +200,8 @@ class AutoNavModel(nn.Module):
                 map_u = fx * (-map_pts_cam[:, 1]) / (map_depth + 1e-6) + cx
                 map_v = fx * (-map_pts_cam[:, 2]) / (map_depth + 1e-6) + cy
                 map_pt_valid = map_depth > 0.1                # [3000]
-                map_u_n = (map_u / 640.0) * 2.0 - 1.0
-                map_v_n = (map_v / 480.0) * 2.0 - 1.0
+                map_u_n = (map_u / 1600.0) * 2.0 - 1.0
+                map_v_n = (map_v / 900.0) * 2.0 - 1.0
                 map_grid = torch.stack([map_u_n, map_v_n], dim=-1).view(1, 1, N_map * N_pp, 2)
                 map_sampled_pt = sample_from_multiscale(
                     features_list, map_grid, map_pt_valid, N_map * N_pp

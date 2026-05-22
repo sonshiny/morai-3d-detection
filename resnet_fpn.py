@@ -93,7 +93,7 @@ class ResNet50_FPN(nn.Module):
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = ResNet50_FPN(Bottleneck).to(device)
-    imgs = torch.randn(6, 3, 224, 224).to(device)
+    imgs = torch.randn(3, 3, 224, 224).to(device)
     
     features = model(imgs)
     

@@ -13,9 +13,9 @@ IMG_SIZE = 224
 class MoraiDataset(Dataset):
     """
     __getitem__ 반환:
-        images              : [6, 3, 224, 224]
-        intrinsics          : [6, 3, 3]
-        extrinsics          : [6, 4, 4]
+        images              : [3, 3, 224, 224]
+        intrinsics          : [3, 3, 3]
+        extrinsics          : [3, 4, 4]
         dynamic_gt_boxes    : [N, 11]
         dynamic_gt_labels   : [N]
         static_gt_polylines : [M, 20, 2]
@@ -109,14 +109,15 @@ class MoraiDataset(Dataset):
         label_stem = group['label_stem']
 
         # 이미지
-        images = torch.zeros(6, 3, IMG_SIZE, IMG_SIZE)
+        n_cams = len(CAM_ORDER)
+        images = torch.zeros(n_cams, 3, IMG_SIZE, IMG_SIZE)
         for ci, cam_name in enumerate(CAM_ORDER):
             if cam_name in cams:
                 images[ci] = self._load_image(cams[cam_name])
 
         # 카메라 행렬 (camera_configs.py 기반)
-        intrinsics = torch.zeros(6, 3, 3)
-        extrinsics = torch.zeros(6, 4, 4)
+        intrinsics = torch.zeros(n_cams, 3, 3)
+        extrinsics = torch.zeros(n_cams, 4, 4)
         for ci, cam_name in enumerate(CAM_ORDER):
             intrinsics[ci] = torch.from_numpy(_INTRINSICS[cam_name])
             extrinsics[ci] = torch.from_numpy(_EXTRINSICS[cam_name])

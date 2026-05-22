@@ -1,0 +1,26 @@
+1번카메라 (정면)
+x: 1.92
+y: 0
+z: 1.21
+pitch:3
+1600/900/fov(화각):70
+topic: cam_front
+
+2번카메라 (정면_우측)
+x: 1.92
+y: -0.56
+z: 1.21
+pitch:3 /yaw:-45=315
+1600/900/fov(화각):70
+topic: cam_front_right
+
+
+2번카메라 (정면_좌측)
+x: 1.92
+y: 0.56
+z: 1.21
+pitch:3 /yaw:45
+1600/900/fov(화각):70
+topic: cam_front_left
+
+공통적으로 10hz

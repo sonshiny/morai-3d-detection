@@ -2,65 +2,51 @@
 """
 camera_configs.py
 =================
-/tf 토픽에서 추출한 정확한 카메라 외부파라미터.
+MORAI 센서 명세 기반 3카메라 외부/내부파라미터.
 모든 파일이 이 파일 하나에서 import해서 사용한다.
-
-ROS tf 쿼터니언 변환 원칙:
-  - /tf의 쿼터니언은 cam→body 방향 (child=cam, parent=base_link)
-  - R_body_to_cam = R_cam_to_body.T
-  - E (4x4 extrinsic) = [R_body_to_cam | -R_body_to_cam @ t_cam_in_body]
 
 카메라 좌표계 (train.py / inference.py 공통):
   X = 전방(depth), Y = 좌, Z = 상
   → u = fx * (-Y/X) + cx
   → v = fx * (-Z/X) + cy
+
+외부파라미터 회전 규칙:
+  - yaw  : body Z축 기준 수평 회전 (양수 = 좌향)
+  - pitch: 카메라 로컬 Y축 기준 상하 회전 (양수 = 하향)
+  - R_cam_to_body = Rz(yaw) @ Ry(pitch)  [intrinsic ZY]
+  - E = [R_body_to_cam | -R_body_to_cam @ t]
 """
 
 import numpy as np
 from scipy.spatial.transform import Rotation
 
 # ===========================================================
-# /tf 원본 데이터 (절대 수정 금지 — 시뮬레이터 ground truth)
-# 2026-03-31 최신 tf 에코 기준으로 업데이트
+# 카메라 명세 (MORAI 센서 설정 기준, 10Hz 공통)
 # ===========================================================
-_TF_DATA = {
+_CAM_DATA = {
     'cam_front': {
-        'translation': [1.8799999952316284, 0.0, 1.350000023841858],
-        'quaternion':  [0.0, 0.13052621483802795, 0.0, 0.9914448857307434],
-    },
-    'cam_back': {
-        'translation': [-0.3499999940395355, 0.0, 1.350000023841858],
-        'quaternion':  [-0.13052621483802795, -5.705481420648084e-09,
-                        -0.9914448857307434,  -4.333743319762107e-08],
-    },
-    'cam_front_left': {
-        'translation': [1.399999976158142, 0.8500000238418579, 1.350000023841858],
-        'quaternion':  [-0.020141197368502617, -0.038690872490406036,
-                        -0.46130919456481934,  -0.8861665725708008],
+        'translation': [1.92, 0.0, 1.21],
+        'pitch_deg':   3.0,
+        'yaw_deg':     0.0,
     },
     'cam_front_right': {
-        'translation': [1.399999976158142, -0.8500000238418579, 1.350000023841858],
-        'quaternion':  [-0.020141197368502617,  0.038690872490406036,
-                        -0.46130919456481934,   0.8861665725708008],
+        'translation': [1.92, -0.56, 1.21],
+        'pitch_deg':   3.0,
+        'yaw_deg':    -45.0,
     },
-    'cam_back_left': {
-        'translation': [0.5699999928474426, 0.8500000238418579, 1.350000023841858],
-        'quaternion':  [-0.038690872490406036, -0.020141197368502617,
-                        -0.8861665725708008,   -0.46130919456481934],
-    },
-    'cam_back_right': {
-        'translation': [0.5699999928474426, -0.8500000238418579, 1.350000023841858],
-        'quaternion':  [-0.038690872490406036,  0.02014119364321232,
-                        -0.8861665725708008,    0.46130913496017456],
+    'cam_front_left': {
+        'translation': [1.92, 0.56, 1.21],
+        'pitch_deg':   3.0,
+        'yaw_deg':     45.0,
     },
 }
 
 # ===========================================================
-# 카메라 내부파라미터 (FOV 90도, 640x480 고정)
+# 카메라 내부파라미터 (1600x900, FOV 70도)
 # ===========================================================
-_CAM_W   = 640
-_CAM_H   = 480
-_FOV_DEG = 90.0
+_CAM_W   = 1600
+_CAM_H   = 900
+_FOV_DEG = 70.0
 
 def _compute_intrinsic(w=_CAM_W, h=_CAM_H, fov_h_deg=_FOV_DEG):
     fov_rad = np.radians(fov_h_deg)
@@ -71,17 +57,12 @@ def _compute_intrinsic(w=_CAM_W, h=_CAM_H, fov_h_deg=_FOV_DEG):
 
 # ===========================================================
 # 외부파라미터 계산
-# /tf 쿼터니언: cam→body 방향
-# R_cam_to_body = Rotation.from_quat([x,y,z,w]).as_matrix()
-# R_body_to_cam = R_cam_to_body.T
-# E[:3,:3] = R_body_to_cam
-# E[:3, 3] = -R_body_to_cam @ t   (t = 카메라 위치 in body frame)
 # ===========================================================
-def _compute_extrinsic(translation, quaternion):
-    x, y, z, w = quaternion
-    R_cam_to_body = Rotation.from_quat([x, y, z, w]).as_matrix()
+def _compute_extrinsic(translation, pitch_deg, yaw_deg):
+    R_cam_to_body = Rotation.from_euler(
+        'ZY', [yaw_deg, pitch_deg], degrees=True
+    ).as_matrix()
     R_body_to_cam = R_cam_to_body.T
-
     t = np.array(translation, dtype=np.float32)
     E = np.eye(4, dtype=np.float32)
     E[:3, :3] = R_body_to_cam
@@ -91,23 +72,21 @@ def _compute_extrinsic(translation, quaternion):
 # ===========================================================
 # 공개 API
 # ===========================================================
-CAM_ORDER = [
-    'cam_front', 'cam_front_left', 'cam_front_right',
-    'cam_back',  'cam_back_left',  'cam_back_right',
-]
+CAM_ORDER = ['cam_front', 'cam_front_left', 'cam_front_right']
 
 INTRINSICS = {cam: _compute_intrinsic() for cam in CAM_ORDER}
 
 EXTRINSICS = {
     cam: _compute_extrinsic(
-        _TF_DATA[cam]['translation'],
-        _TF_DATA[cam]['quaternion']
+        _CAM_DATA[cam]['translation'],
+        _CAM_DATA[cam]['pitch_deg'],
+        _CAM_DATA[cam]['yaw_deg'],
     )
     for cam in CAM_ORDER
 }
 
 CAM_POSITIONS = {
-    cam: np.array(_TF_DATA[cam]['translation'], dtype=np.float32)
+    cam: np.array(_CAM_DATA[cam]['translation'], dtype=np.float32)
     for cam in CAM_ORDER
 }
 
