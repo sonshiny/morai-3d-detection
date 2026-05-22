@@ -17,14 +17,15 @@ from camera_configs import (INTRINSICS as _INTRINSICS,
                              EXTRINSICS as _EXTRINSICS,
                              CAM_ORDER)
 
-DATASET_DIR  = './dataset'
+DATASET_DIR  = './dataset/scen01'
 SCORE_THRESH = 0.2
-CLASS_NAMES  = {0: 'vehicle'}
-CLASS_COLORS = {0: (0, 255, 0)}
+CLASS_NAMES  = {0: 'vehicle',     1: 'pedestrian'}
+CLASS_COLORS = {0: (0, 255, 0),   1: (0, 165, 255)}   # green, orange (BGR)
 IMG_SIZE     = 224
 
 
 def bev_nms(boxes, scores, iou_thresh=0.3):
+    # BEV: ego x=전방(길이 l), ego y=좌(폭 w). 회전 무시 axis-aligned IoU.
     if len(boxes) == 0:
         return []
     order = np.argsort(scores)[::-1]
@@ -40,11 +41,11 @@ def bev_nms(boxes, scores, iou_thresh=0.3):
         cx_r = boxes[rest, 0]; cy_r = boxes[rest, 1]
         w_r  = np.exp(boxes[rest, 3]); l_r = np.exp(boxes[rest, 4])
         inter_x = np.maximum(
-            0, np.minimum(cx_i+w_i/2, cx_r+w_r/2)
-             - np.maximum(cx_i-w_i/2, cx_r-w_r/2))
+            0, np.minimum(cx_i+l_i/2, cx_r+l_r/2)
+             - np.maximum(cx_i-l_i/2, cx_r-l_r/2))
         inter_y = np.maximum(
-            0, np.minimum(cy_i+l_i/2, cy_r+l_r/2)
-             - np.maximum(cy_i-l_i/2, cy_r-l_r/2))
+            0, np.minimum(cy_i+w_i/2, cy_r+w_r/2)
+             - np.maximum(cy_i-w_i/2, cy_r-w_r/2))
         inter = inter_x * inter_y
         iou   = inter / (w_i*l_i + w_r*l_r - inter + 1e-6)
         order = rest[iou < iou_thresh]
@@ -52,17 +53,19 @@ def bev_nms(boxes, scores, iou_thresh=0.3):
 
 
 def project_box_to_cam(box_ego, cam_name, orig_w=1600, orig_h=900):
-    x, y, z  = box_ego[0], box_ego[1], box_ego[2]
-    sx       = np.exp(box_ego[3])   # ln_w → w
-    sy       = np.exp(box_ego[4])   # ln_l → l
-    sz       = np.exp(box_ego[5])   # ln_h → h
+    # local frame 컨벤션 (train.py / visualize_pred_fixed.py 와 동일):
+    #   local x = 길이(전방), local y = 폭(좌), local z = 높이
+    x, y, z = box_ego[0], box_ego[1], box_ego[2]
+    w       = np.exp(box_ego[3])   # ln_w → 폭   (lateral)
+    l       = np.exp(box_ego[4])   # ln_l → 길이 (forward)
+    h       = np.exp(box_ego[5])   # ln_h → 높이
     sin_y, cos_y = box_ego[6], box_ego[7]
 
     corners_local = np.array([
-        [ sx/2,  sy/2,  sz/2], [ sx/2,  sy/2, -sz/2],
-        [ sx/2, -sy/2,  sz/2], [ sx/2, -sy/2, -sz/2],
-        [-sx/2,  sy/2,  sz/2], [-sx/2,  sy/2, -sz/2],
-        [-sx/2, -sy/2,  sz/2], [-sx/2, -sy/2, -sz/2],
+        [ l/2,  w/2,  h/2], [ l/2,  w/2, -h/2],
+        [ l/2, -w/2,  h/2], [ l/2, -w/2, -h/2],
+        [-l/2,  w/2,  h/2], [-l/2,  w/2, -h/2],
+        [-l/2, -w/2,  h/2], [-l/2, -w/2, -h/2],
     ], dtype=np.float32)
 
     Rz = np.array([[cos_y, -sin_y, 0],
@@ -153,25 +156,39 @@ def run_inference(weights_path, stems, out_dir):
                 extrinsics.to(device)
             )
 
-        probs          = det_cls.softmax(-1)
-        vehicle_scores = probs[:, 0]
-        keep_mask      = vehicle_scores > SCORE_THRESH
+        # det_cls : [900, 3]  (0=vehicle, 1=pedestrian, 2=bg)
+        probs       = det_cls.softmax(-1).cpu().numpy()
+        fg_scores   = probs[:, :2]                    # [900, 2]
+        best_cls    = np.argmax(fg_scores, axis=1)    # [900]
+        best_score  = np.max(fg_scores, axis=1)       # [900]
+        keep_mask   = best_score > SCORE_THRESH
 
-        boxes_cand = det_box[keep_mask].cpu().numpy()
-        cls_cand   = np.zeros(len(boxes_cand), dtype=np.int64)
-        scr_cand   = vehicle_scores[keep_mask].cpu().numpy()
+        boxes_cand = det_box.cpu().numpy()[keep_mask]
+        cls_cand   = best_cls[keep_mask]
+        scr_cand   = best_score[keep_mask]
 
+        # 클래스별 NMS
         if len(boxes_cand) > 0:
-            nms_idx    = bev_nms(boxes_cand, scr_cand)
-            boxes_keep = boxes_cand[nms_idx]
-            cls_keep   = cls_cand[nms_idx]
-            scr_keep   = scr_cand[nms_idx]
+            keep_global = []
+            for c in (0, 1):
+                cls_mask = cls_cand == c
+                if not cls_mask.any():
+                    continue
+                local_idx = bev_nms(boxes_cand[cls_mask], scr_cand[cls_mask])
+                original_idx = np.where(cls_mask)[0]
+                keep_global.extend(original_idx[i] for i in local_idx)
+            keep_global = np.array(keep_global, dtype=np.int64)
+            boxes_keep  = boxes_cand[keep_global]
+            cls_keep    = cls_cand[keep_global]
+            scr_keep    = scr_cand[keep_global]
         else:
             boxes_keep = boxes_cand
             cls_keep   = cls_cand
             scr_keep   = scr_cand
 
-        print(f"[{stem}] 예측: {len(boxes_keep)}개")
+        n_veh = int((cls_keep == 0).sum())
+        n_ped = int((cls_keep == 1).sum())
+        print(f"[{stem}] 예측: vehicle {n_veh}, pedestrian {n_ped}")
 
         gt_boxes_raw = load_gt_from_csv(os.path.join(lbl_dir, f"{stem}.csv"))
 

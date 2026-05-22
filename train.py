@@ -1,5 +1,3 @@
-import os
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,10 +8,8 @@ from resnet_fpn import ResNet50_FPN, Bottleneck
 from anchor_generator import generate_anchors, generate_anchors_full
 from decoder import FFNDecoder
 from static_decoder import StaticMapDecoder, generate_polyline_anchors
-from loss_calculator import CustomLoss, MapHungarianMatcher
+from loss_calculator import CustomLoss
 from torch.utils.data import DataLoader
-
-CAM_ORDER = ['cam_front', 'cam_front_left', 'cam_front_right']
 
 
 # ===========================================================
@@ -42,7 +38,7 @@ def sample_from_multiscale(features_list, grid_2d, valid_mask, N):
 # ===========================================================
 def generate_5_keypoints(anchors_full):
     """
-    anchors_full : [N, 11] = x,y,z,ln_w,ln_h,ln_l,sin_yaw,cos_yaw,vx,vy,vz
+    anchors_full : [N, 11] = x,y,z,ln_w,ln_l,ln_h,sin_yaw,cos_yaw,vx,vy,vz
     반환         : [N, 5, 3] = (중심, FL, FR, RL, RR)
                    각 점은 (x,y,z) ego 좌표
     """
@@ -51,7 +47,7 @@ def generate_5_keypoints(anchors_full):
 
     xyz = anchors_full[:, 0:3]           # [N, 3]
     w = torch.exp(anchors_full[:, 3])    # [N]  (좌우 폭)
-    l = torch.exp(anchors_full[:, 5])    # [N]  (전후 길이)
+    l = torch.exp(anchors_full[:, 4])    # [N]  (전후 길이)
     sin_y = anchors_full[:, 6]           # [N]
     cos_y = anchors_full[:, 7]           # [N]
 
@@ -93,7 +89,8 @@ class AutoNavModel(nn.Module):
     def __init__(self):
         super().__init__()
         self.backbone = ResNet50_FPN(Bottleneck)
-        self.det_decoder = FFNDecoder(num_classes=2)
+        # num_classes=3 → 출력 logits 3개: 0=vehicle, 1=pedestrian, 2=background
+        self.det_decoder = FFNDecoder(num_classes=3)
         self.det_anchors_3d = generate_anchors()
         self.det_anchors_full = generate_anchors_full()
         self.map_decoder = StaticMapDecoder(num_classes=3)
@@ -255,75 +252,28 @@ class AutoNavModel(nn.Module):
 
 
 # ===========================================================
-# 정적 맵 Loss
-# ===========================================================
-POLYLINE_SCALE = 110.0
-
-class StaticMapLoss(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.bg_class = 3
-        self.matcher = MapHungarianMatcher(cost_class=2.0, cost_line=5.0)
-
-    def forward(self, pred_classes, pred_lines, gt_classes, gt_lines):
-        device = pred_classes.device
-        num_anchors = pred_classes.shape[0]
-
-        if gt_classes is None or gt_classes.shape[0] == 0:
-            target = torch.full((num_anchors,), self.bg_class,
-                                dtype=torch.long, device=device)
-            return F.cross_entropy(pred_classes, target) * 0.1
-
-        pred_idx, gt_idx = self.matcher(
-            pred_classes, pred_lines, gt_classes, gt_lines,
-            polyline_scale=POLYLINE_SCALE
-        )
-        pred_idx = pred_idx.to(device)
-        gt_idx   = gt_idx.to(device)
-
-        target = torch.full((num_anchors,), self.bg_class,
-                            dtype=torch.long, device=device)
-        target[pred_idx] = gt_classes[gt_idx]
-
-        loss_cls = F.cross_entropy(pred_classes, target)
-        loss_reg = F.l1_loss(
-            pred_lines[pred_idx] / POLYLINE_SCALE,
-            gt_lines[gt_idx]     / POLYLINE_SCALE
-        )
-        return 1.0 * loss_cls + 10.0 * loss_reg
-
-
-# ===========================================================
-# 학습 루프
+# 학습 루프 (동적 객체만 학습 — 정적 맵 head는 forward에서만 통과)
 # ===========================================================
 if __name__ == "__main__":
-    print("SparseDrive 인지 모듈 학습을 시작합니다! [P0 4개 수정 적용]")
+    print("SparseDrive 인지 모듈 학습을 시작합니다! [동적 객체 전용]")
     print("   - [P0-#1] anchor별 visible 카메라 수로 정규화")
     print("   - [P0-#2] 5개 키포인트 (중심 + BEV 4 corner)")
-    print("   - [P0-#3] Map polyline 20개 점 모두 카메라 sampling")
+    print("   - [P0-#3] Map polyline 20개 점 모두 카메라 sampling (forward only)")
     print("   - [P0-#4] sin/cos unit norm 정규화\n")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[디바이스] {device}\n")
 
     model = AutoNavModel().to(device)
+    start_epoch = 0
+    print("[학습] 처음부터 학습\n")
 
-    # checkpoint resume (P0 수정으로 구조 변경 없음 → 기존 weight 호환)
-    resume_ckpt = 'checkpoint_epoch30.pth'
-    if os.path.isfile(resume_ckpt):
-        model.load_state_dict(torch.load(resume_ckpt, map_location=device))
-        start_epoch = 30
-        print(f"[resume] {resume_ckpt} 로드 완료 → epoch {start_epoch+1}부터 이어서 학습\n")
-    else:
-        start_epoch = 0
-        print("[resume] 체크포인트 없음 → 처음부터 학습\n")
-
-    dataset    = MoraiDataset(dataset_dir='./dataset', split='train')
+    dataset    = MoraiDataset(dataset_root='./dataset', split='train')
     dataloader = DataLoader(dataset, batch_size=8, shuffle=True,
                             collate_fn=morai_collate_fn, num_workers=2)
 
-    det_criterion = CustomLoss(num_classes=1).to(device)
-    map_criterion = StaticMapLoss().to(device)
+    # num_classes=2: vehicle, pedestrian (bg_class=2)
+    det_criterion = CustomLoss(num_classes=2).to(device)
 
     backbone_params = list(model.backbone.parameters())
     backbone_ids    = set(id(p) for p in backbone_params)
@@ -337,8 +287,6 @@ if __name__ == "__main__":
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=100, eta_min=1e-6
     )
-    for _ in range(start_epoch):
-        scheduler.step()
 
     num_epochs     = 100
     best_loss      = float('inf')
@@ -347,9 +295,7 @@ if __name__ == "__main__":
     for epoch in range(start_epoch, num_epochs):
         model.train()
         print(f"========== [Epoch {epoch+1}/{num_epochs}] ==========")
-        epoch_loss     = 0.0
-        epoch_det_loss = 0.0
-        epoch_map_loss = 0.0
+        epoch_loss = 0.0
 
         for step, batch in enumerate(dataloader):
             images     = batch['images'].to(device)
@@ -357,35 +303,20 @@ if __name__ == "__main__":
             extrinsics = batch['extrinsics'].to(device)
             n = images.shape[0]
 
-            det_classes_b, det_boxes_b, map_classes_b, map_lines_b = model(
+            det_classes_b, det_boxes_b, _, _ = model(
                 images, intrinsics, extrinsics
             )
 
-            batch_loss     = 0.0
-            batch_det_loss = 0.0
-            batch_map_loss = 0.0
+            batch_loss = 0.0
 
             for i in range(n):
                 gt_boxes   = batch['dynamic_gt_boxes'][i].to(device)
                 gt_classes = batch['dynamic_gt_labels'][i].to(device)
 
-                static_gt_classes = batch['static_gt_labels'][i].to(device) \
-                    if 'static_gt_labels' in batch else None
-                static_gt_lines = batch['static_gt_polylines'][i].to(device) \
-                    if 'static_gt_polylines' in batch else None
-
-                det_loss, cls_loss, box_loss = det_criterion(
+                det_loss, _, _ = det_criterion(
                     det_classes_b[i], det_boxes_b[i], gt_classes, gt_boxes
                 )
-                map_loss = map_criterion(
-                    map_classes_b[i], map_lines_b[i],
-                    static_gt_classes, static_gt_lines
-                )
-
-                total_i     = det_loss + map_loss
-                batch_loss     += total_i
-                batch_det_loss += det_loss.item()
-                batch_map_loss += map_loss.item()
+                batch_loss += det_loss
 
             batch_loss = batch_loss / n
 
@@ -394,23 +325,17 @@ if __name__ == "__main__":
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
 
-            epoch_loss     += batch_loss.item()
-            epoch_det_loss += batch_det_loss / n
-            epoch_map_loss += batch_map_loss / n
+            epoch_loss += batch_loss.item()
 
             if step % 10 == 0:
-                print(f"  Step {step:03d} | Loss: {batch_loss.item():.4f} "
-                      f"(Det: {batch_det_loss/n:.4f}, Map: {batch_map_loss/n:.4f})")
+                print(f"  Step {step:03d} | Det Loss: {batch_loss.item():.4f}")
 
         scheduler.step()
 
-        avg_loss     = epoch_loss     / len(dataloader)
-        avg_det_loss = epoch_det_loss / len(dataloader)
-        avg_map_loss = epoch_map_loss / len(dataloader)
+        avg_loss = epoch_loss / len(dataloader)
 
         print(f"\n🚀 Epoch {epoch+1} 완료! "
-              f"평균 Loss: {avg_loss:.4f} "
-              f"(Det: {avg_det_loss:.4f}, Map: {avg_map_loss:.4f}) "
+              f"평균 Det Loss: {avg_loss:.4f} "
               f"| LR: {scheduler.get_last_lr()[0]:.2e}\n")
 
         if avg_loss < best_loss:
@@ -423,8 +348,8 @@ if __name__ == "__main__":
             torch.save(model.state_dict(), ckpt_path)
             print(f"  📌 체크포인트 저장: {ckpt_path}\n")
 
-        if avg_det_loss < DET_EARLY_STOP:
-            print(f"⚠️  Early Stopping! Det Loss {avg_det_loss:.4f} < {DET_EARLY_STOP}")
+        if avg_loss < DET_EARLY_STOP:
+            print(f"⚠️  Early Stopping! Det Loss {avg_loss:.4f} < {DET_EARLY_STOP}")
             break
 
     print("🎉 학습 완료!")

@@ -12,6 +12,15 @@ IMG_SIZE = 224
 
 class MoraiDataset(Dataset):
     """
+    dataset_root/
+      scen01/
+        images/cam_front/live_000000.jpg
+        images/cam_front_left/live_000000.jpg
+        images/cam_front_right/live_000000.jpg
+        labels_3d/live_000000.csv
+      scen02/
+        ...
+
     __getitem__ 반환:
         images              : [3, 3, 224, 224]
         intrinsics          : [3, 3, 3]
@@ -21,36 +30,51 @@ class MoraiDataset(Dataset):
         stem                : str
     """
 
-    def __init__(self, dataset_dir='./dataset', split='train', val_ratio=0.1):
-        self.img_root = os.path.join(dataset_dir, 'images')
-        self.lbl_dir  = os.path.join(dataset_dir, 'labels_3d')
+    def __init__(self, dataset_root='./dataset', split='train', val_ratio=0.1):
+        if not os.path.isdir(dataset_root):
+            raise FileNotFoundError(f"[ERROR] dataset_root 없음: {dataset_root}")
 
-        if not os.path.isdir(self.lbl_dir):
-            raise FileNotFoundError(
-                f"\n[ERROR] {self.lbl_dir} 없음!\n"
-                f"먼저 morai_3d_live.py를 실행해 데이터를 수집하세요."
-            )
-
-        all_stems = sorted([
-            os.path.splitext(f)[0]
-            for f in os.listdir(self.lbl_dir)
-            if f.endswith('.csv')
+        # scen01, scen02, ... 형태 폴더 모두 수집
+        scen_dirs = sorted([
+            os.path.join(dataset_root, d)
+            for d in os.listdir(dataset_root)
+            if os.path.isdir(os.path.join(dataset_root, d))
+            and os.path.isdir(os.path.join(dataset_root, d, 'labels_3d'))
         ])
 
-        if len(all_stems) == 0:
-            raise FileNotFoundError(f"[ERROR] {self.lbl_dir} 에 CSV 파일이 없습니다.")
+        if not scen_dirs:
+            raise FileNotFoundError(
+                f"[ERROR] {dataset_root} 아래에 labels_3d 폴더를 가진 시나리오가 없습니다."
+            )
 
-        n_val   = max(1, int(len(all_stems) * val_ratio))
-        n_train = len(all_stems) - n_val
-        self.stems = all_stems[:n_train] if split == 'train' else all_stems[n_train:]
+        # (scen_dir, stem) 쌍 전체 수집
+        all_items = []
+        for scen_dir in scen_dirs:
+            lbl_dir = os.path.join(scen_dir, 'labels_3d')
+            stems = sorted([
+                os.path.splitext(f)[0]
+                for f in os.listdir(lbl_dir)
+                if f.endswith('.csv')
+            ])
+            for stem in stems:
+                all_items.append((scen_dir, stem))
 
-        print(f"[MoraiDataset] 전체: {len(all_stems):,} | {split}: {len(self.stems):,} 프레임")
+        if not all_items:
+            raise FileNotFoundError(f"[ERROR] CSV 파일이 하나도 없습니다.")
+
+        n_val   = max(1, int(len(all_items) * val_ratio))
+        n_train = len(all_items) - n_val
+        self.items = all_items[:n_train] if split == 'train' else all_items[n_train:]
+
+        scen_names = [os.path.basename(d) for d in scen_dirs]
+        print(f"[MoraiDataset] 시나리오: {scen_names}")
+        print(f"[MoraiDataset] 전체: {len(all_items):,} | {split}: {len(self.items):,} 프레임")
 
     def __len__(self):
-        return len(self.stems)
+        return len(self.items)
 
-    def _load_image(self, stem, cam_name):
-        path    = os.path.join(self.img_root, cam_name, f"{stem}.jpg")
+    def _load_image(self, scen_dir, stem, cam_name):
+        path    = os.path.join(scen_dir, 'images', cam_name, f"{stem}.jpg")
         img_bgr = cv2.imread(path)
         if img_bgr is None:
             return torch.zeros(3, IMG_SIZE, IMG_SIZE)
@@ -58,8 +82,8 @@ class MoraiDataset(Dataset):
         img_rs  = cv2.resize(img_rgb, (IMG_SIZE, IMG_SIZE))
         return torch.from_numpy(img_rs).permute(2, 0, 1).float() / 255.0
 
-    def _load_labels(self, stem):
-        csv_path = os.path.join(self.lbl_dir, f"{stem}.csv")
+    def _load_labels(self, scen_dir, stem):
+        csv_path = os.path.join(scen_dir, 'labels_3d', f"{stem}.csv")
         boxes, labels = [], []
 
         if os.path.isfile(csv_path):
@@ -87,12 +111,12 @@ class MoraiDataset(Dataset):
         )
 
     def __getitem__(self, idx):
-        stem   = self.stems[idx]
+        scen_dir, stem = self.items[idx]
         n_cams = len(CAM_ORDER)
 
         images = torch.zeros(n_cams, 3, IMG_SIZE, IMG_SIZE)
         for ci, cam_name in enumerate(CAM_ORDER):
-            images[ci] = self._load_image(stem, cam_name)
+            images[ci] = self._load_image(scen_dir, stem, cam_name)
 
         intrinsics = torch.zeros(n_cams, 3, 3)
         extrinsics = torch.zeros(n_cams, 4, 4)
@@ -100,36 +124,37 @@ class MoraiDataset(Dataset):
             intrinsics[ci] = torch.from_numpy(_INTRINSICS[cam_name])
             extrinsics[ci] = torch.from_numpy(_EXTRINSICS[cam_name])
 
-        gt_boxes, gt_labels = self._load_labels(stem)
+        gt_boxes, gt_labels = self._load_labels(scen_dir, stem)
 
         return {
-            'images':           images,
-            'intrinsics':       intrinsics,
-            'extrinsics':       extrinsics,
+            'images':            images,
+            'intrinsics':        intrinsics,
+            'extrinsics':        extrinsics,
             'dynamic_gt_boxes':  gt_boxes,
             'dynamic_gt_labels': gt_labels,
-            'stem':             stem,
+            'stem':              f"{os.path.basename(scen_dir)}/{stem}",
         }
 
 
 def morai_collate_fn(batch):
     return {
-        'images':           torch.stack([b['images']     for b in batch]),
-        'intrinsics':       torch.stack([b['intrinsics'] for b in batch]),
-        'extrinsics':       torch.stack([b['extrinsics'] for b in batch]),
+        'images':            torch.stack([b['images']     for b in batch]),
+        'intrinsics':        torch.stack([b['intrinsics'] for b in batch]),
+        'extrinsics':        torch.stack([b['extrinsics'] for b in batch]),
         'dynamic_gt_boxes':  [b['dynamic_gt_boxes']  for b in batch],
         'dynamic_gt_labels': [b['dynamic_gt_labels'] for b in batch],
-        'stem':             [b['stem'] for b in batch],
+        'stem':              [b['stem'] for b in batch],
     }
 
 
 if __name__ == "__main__":
-    ds     = MoraiDataset(dataset_dir='./dataset', split='train')
+    ds     = MoraiDataset(dataset_root='./dataset', split='train')
     loader = DataLoader(ds, batch_size=2, shuffle=True,
-                        collate_fn=morai_collate_fn)
+                        collate_fn=morai_collate_fn, num_workers=0)
     batch  = next(iter(loader))
     print(f"images     : {batch['images'].shape}")
     print(f"intrinsics : {batch['intrinsics'].shape}")
     print(f"extrinsics : {batch['extrinsics'].shape}")
     print(f"GT boxes   : {batch['dynamic_gt_boxes'][0].shape}")
+    print(f"stems      : {batch['stem']}")
     print("✅ 데이터셋 정상!")

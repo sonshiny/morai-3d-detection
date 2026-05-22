@@ -33,10 +33,12 @@ def generate_anchors():
 def generate_anchors_full():
     """
     SparseDrive 11차원 앵커: [900, 11]
-    {x, y, z, ln_w, ln_h, ln_l, sin_yaw, cos_yaw, vx, vy, vz}
-    
+    {x, y, z, ln_w, ln_l, ln_h, sin_yaw, cos_yaw, vx, vy, vz}
+
+    ⚠️ GT(morai_dataset / morai_3d_live.py)와 동일한 순서: ln_w → ln_l → ln_h
+
     Default 값:
-      - 차량 크기: w=1.8m, h=1.6m, l=4.5m (sedan 평균)
+      - 차량 크기: w=1.8m, l=4.5m, h=1.6m (sedan 평균)
       - yaw: -π/2 (GT의 동일 방향 NPC 오프셋과 일치)
       - velocity: 0
     """
@@ -44,16 +46,16 @@ def generate_anchors_full():
     N = anchors_3d.shape[0]
 
     # 현실적인 차량 크기 default (log-space)
-    ln_w = math.log(1.8)   # 폭 1.8m
-    ln_h = math.log(1.6)   # 높이 1.6m
+    ln_w = math.log(1.8)   # 폭   1.8m
     ln_l = math.log(4.5)   # 길이 4.5m
+    ln_h = math.log(1.6)   # 높이 1.6m
 
     # 동일 방향 NPC와 일치 (GT의 -π/2 오프셋)
     sin_yaw = -1.0
     cos_yaw = 0.0
 
     defaults = torch.tensor(
-        [ln_w, ln_h, ln_l, sin_yaw, cos_yaw, 0.0, 0.0, 0.0]
+        [ln_w, ln_l, ln_h, sin_yaw, cos_yaw, 0.0, 0.0, 0.0]
     ).unsqueeze(0).expand(N, -1)
     return torch.cat([anchors_3d, defaults], dim=-1)
 
@@ -66,8 +68,8 @@ if __name__ == "__main__":
     print(f"y 범위: {a3[:,1].min():.1f} ~ {a3[:,1].max():.1f}")
     print(f"\n11차원 default:")
     print(f"  w  : {torch.exp(a11[0, 3]).item():.2f}m")
-    print(f"  h  : {torch.exp(a11[0, 4]).item():.2f}m")
-    print(f"  l  : {torch.exp(a11[0, 5]).item():.2f}m")
+    print(f"  l  : {torch.exp(a11[0, 4]).item():.2f}m")
+    print(f"  h  : {torch.exp(a11[0, 5]).item():.2f}m")
     sin_y = a11[0, 6].item()
     cos_y = a11[0, 7].item()
     yaw_rad = math.atan2(sin_y, cos_y)

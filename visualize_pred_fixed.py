@@ -16,10 +16,12 @@ from train import AutoNavModel
 
 DET_NAMES = {
     0: 'vehicle',
+    1: 'pedestrian',
 }
 
 DET_COLORS = {
     0: 'red',
+    1: 'orange',
 }
 
 MAP_COLORS = {
@@ -124,25 +126,35 @@ def get_prediction(sample, model, device, det_thresh=DET_THRESH, map_thresh=MAP_
     with torch.no_grad():
         det_logits, det_boxes, map_logits, map_lines = model(images, intrinsics, extrinsics)
 
-    det_probs = torch.softmax(det_logits, dim=-1).cpu().numpy()   # [900, 2]
+    det_probs = torch.softmax(det_logits, dim=-1).cpu().numpy()   # [900, 3]
     det_boxes = det_boxes.cpu().numpy()                           # [900, 11]
     map_probs = torch.softmax(map_logits, dim=-1).cpu().numpy()   # [150, 4]
     map_lines = map_lines.cpu().numpy()                           # [150, 20, 2]
 
-    # single-class vehicle detection
-    vehicle_scores = det_probs[:, 0]
-    bg_scores = det_probs[:, 1]   # 2-class면 index 1이 bg로 올바름
-    keep_mask = vehicle_scores > det_thresh 
+    # multi-class: 0=vehicle, 1=pedestrian, 2=bg
+    fg_scores  = det_probs[:, :2]                  # [900, 2]
+    best_cls   = np.argmax(fg_scores, axis=1)      # [900]
+    best_score = np.max(fg_scores, axis=1)         # [900]
+    keep_mask  = best_score > det_thresh
 
     boxes_cand = det_boxes[keep_mask]
-    scr_cand = vehicle_scores[keep_mask]
-    cls_cand = np.zeros(len(boxes_cand), dtype=np.int64)
+    scr_cand   = best_score[keep_mask]
+    cls_cand   = best_cls[keep_mask]
 
+    # 클래스별 NMS
     if len(boxes_cand) > 0:
-        keep_idx = bev_nms(boxes_cand, scr_cand, iou_thresh=0.3)
-        boxes_keep = boxes_cand[keep_idx]
-        scr_keep = scr_cand[keep_idx]
-        cls_keep = cls_cand[keep_idx]
+        keep_global = []
+        for c in (0, 1):
+            mask = cls_cand == c
+            if not mask.any():
+                continue
+            local_idx = bev_nms(boxes_cand[mask], scr_cand[mask], iou_thresh=0.3)
+            original_idx = np.where(mask)[0]
+            keep_global.extend(original_idx[i] for i in local_idx)
+        keep_global = np.array(keep_global, dtype=np.int64)
+        boxes_keep = boxes_cand[keep_global]
+        scr_keep   = scr_cand[keep_global]
+        cls_keep   = cls_cand[keep_global]
     else:
         boxes_keep = boxes_cand
         scr_keep = scr_cand
