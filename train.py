@@ -426,7 +426,7 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
 if __name__ == "__main__":
     # ─── Config ────────────────────────────────────────
     DATASET_ROOT = './dataset'
-    # val로 뺄 시나리오 이름. None이면 알파벳 정렬 마지막 2개를 자동 사용.
+    # val로 뺄 시나리오 이름. None이면 알파벳 정렬 마지막 5개를 자동 사용.
     # ⚠️ make_kmeans.py 의 --val-scenarios와 반드시 일치시킬 것.
     VAL_SCENARIOS = None
 
@@ -437,12 +437,12 @@ if __name__ == "__main__":
     METRIC_EVERY         = 5      # N epoch마다 val Precision/Recall 추가 계산
     RECALL_THR           = 2.0    # distance match threshold
     KMEANS_K             = DEFAULT_K
-    FORCE_REMAKE_KMEANS  = False
+    FORCE_REMAKE_KMEANS  = True
     # ───────────────────────────────────────────────────
 
     print("SparseDrive-style 3-camera detection 학습 시작! [vehicle + pedestrian]")
-    print(f"   - val 시나리오: {'auto(last 2)' if VAL_SCENARIOS is None else VAL_SCENARIOS}")
-    print(f"   - kmeans anchor: train split only, K={KMEANS_K}")
+    print(f"   - val 시나리오: {'auto(last 5)' if VAL_SCENARIOS is None else VAL_SCENARIOS}")
+    print(f"   - kmeans anchor: train split only, K={KMEANS_K}, always remake")
     print(f"   - best 기준   : val loss")
     print(f"   - early stop  : patience={EARLY_STOP_PATIENCE}, min_delta={EARLY_STOP_MIN_DELTA}")
     print(f"   - metric      : Precision/Recall@{RECALL_THR}m, 매 {METRIC_EVERY} epoch\n")

@@ -41,7 +41,7 @@ class MoraiDataset(Dataset):
 
     Split 방식 (시나리오 단위 — data leakage 방지):
       - val_scenarios에 명시된 시나리오만 val, 나머지 전부 train
-      - val_scenarios=None → 알파벳 정렬 마지막 2개를 자동 val
+      - val_scenarios=None → 알파벳 정렬 마지막 5개를 자동 val
 
     __getitem__ 반환:
         images              : [3, 3, 224, 224]
@@ -72,7 +72,8 @@ class MoraiDataset(Dataset):
         scen_names = [os.path.basename(d) for d in scen_dirs]
 
         if val_scenarios is None:
-            val_scenarios = scen_names[-2:] if len(scen_names) >= 2 else [scen_names[-1]]
+            n_val = min(5, len(scen_names))
+            val_scenarios = scen_names[-n_val:]
         else:
             val_scenarios = list(val_scenarios)
             unknown = [n for n in val_scenarios if n not in scen_names]

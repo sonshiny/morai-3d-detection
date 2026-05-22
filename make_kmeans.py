@@ -33,7 +33,8 @@ def list_scenarios(dataset_root):
 def resolve_val_scenarios(dataset_root, val_scenarios):
     scen_names = list_scenarios(dataset_root)
     if val_scenarios is None:
-        return scen_names[-2:] if len(scen_names) >= 2 else [scen_names[-1]]
+        n_val = min(5, len(scen_names))
+        return scen_names[-n_val:]
 
     val_scenarios = list(val_scenarios)
     unknown = [name for name in val_scenarios if name not in scen_names]
@@ -271,7 +272,7 @@ def main():
     parser.add_argument('--dataset-root', default='./dataset')
     parser.add_argument(
         '--val-scenarios', nargs='*', default=None,
-        help='val로 뺄 시나리오 이름. 비우면 알파벳 마지막 2개. '
+        help='val로 뺄 시나리오 이름. 비우면 알파벳 마지막 5개. '
              'train.py의 VAL_SCENARIOS와 반드시 일치시킬 것.',
     )
     parser.add_argument('--k', type=int, default=DEFAULT_K)
