@@ -16,6 +16,19 @@ from morai_msgs.msg import EgoVehicleStatus, ObjectStatusList
 
 
 # =========================
+# 3 Camera Topics
+# =========================
+
+CAMERA_TOPICS = {
+    "/cam_front": "cam_front",
+    "/cam_front_left": "cam_front_left",
+    "/cam_front_right": "cam_front_right",
+}
+
+REFERENCE_CAMERA_TOPIC = "/cam_front"
+
+
+# =========================
 # Ego 기준 수집 범위 설정
 # =========================
 # x: Ego 전방 방향
@@ -92,7 +105,6 @@ def create_next_scenario_dir(dataset_root, prefix="scen", digits=2):
     os.makedirs(dataset_root, exist_ok=True)
 
     pattern = re.compile(rf"^{re.escape(prefix)}(\d+)$")
-
     max_idx = 0
 
     for name in os.listdir(dataset_root):
@@ -179,8 +191,8 @@ def msg_time_or_now(msg):
 
 def find_closest(buffer, target_sec, max_gap):
     """
-    이미지 timestamp 기준으로 가장 가까운 Ego/Object 메시지를 찾는다.
-    max_gap보다 시간 차이가 크면 동기화 실패로 처리한다.
+    target_sec 기준으로 가장 가까운 메시지를 찾는다.
+    max_gap보다 시간 차이가 크면 None 반환.
     """
 
     if not buffer:
@@ -195,23 +207,51 @@ def find_closest(buffer, target_sec, max_gap):
     return best_msg
 
 
-class MoraiLive3DLabelerCSV:
-    def __init__(self, dataset_dir, scenario_name, max_sync_gap=0.10, save_images=False):
+def find_closest_with_ts(buffer, target_sec, max_gap):
+    """
+    target_sec 기준으로 가장 가까운 메시지와 timestamp를 함께 반환.
+    """
+
+    if not buffer:
+        return None, None
+
+    best_ts, best_msg = min(buffer, key=lambda item: abs(item[0] - target_sec))
+    gap = abs(best_ts - target_sec)
+
+    if gap > max_gap:
+        return None, None
+
+    return best_ts, best_msg
+
+
+class MoraiLive3Cam3DLabelerCSV:
+    def __init__(self, dataset_dir, scenario_name, max_sync_gap=0.10, save_images=True):
         self.dataset_dir = dataset_dir
         self.scenario_name = scenario_name
         self.max_sync_gap = max_sync_gap
         self.save_images = save_images
 
-        self.img_dir = os.path.join(dataset_dir, "images")
+        self.img_root_dir = os.path.join(dataset_dir, "images")
         self.csv_dir = os.path.join(dataset_dir, "labels_3d")
 
-        os.makedirs(self.img_dir, exist_ok=True)
+        os.makedirs(self.img_root_dir, exist_ok=True)
         os.makedirs(self.csv_dir, exist_ok=True)
+
+        self.camera_image_dirs = {}
+        for topic, cam_name in CAMERA_TOPICS.items():
+            cam_dir = os.path.join(self.img_root_dir, cam_name)
+            os.makedirs(cam_dir, exist_ok=True)
+            self.camera_image_dirs[topic] = cam_dir
 
         self.ego_buffer = deque(maxlen=200)
         self.obj_buffer = deque(maxlen=200)
 
+        self.camera_buffers = {
+            topic: deque(maxlen=100) for topic in CAMERA_TOPICS.keys()
+        }
+
         self.frame_idx = 0
+        self.last_processed_ref_ts = None
 
         rospy.Subscriber(
             "/Ego_topic",
@@ -227,19 +267,27 @@ class MoraiLive3DLabelerCSV:
             queue_size=50
         )
 
-        rospy.Subscriber(
-            "/image_jpeg/compressed",
-            CompressedImage,
-            self.image_callback,
-            queue_size=10
-        )
+        for topic in CAMERA_TOPICS.keys():
+            rospy.Subscriber(
+                topic,
+                CompressedImage,
+                self.camera_callback,
+                callback_args=topic,
+                queue_size=10,
+                buff_size=2**24
+            )
 
-        rospy.loginfo("MORAI live 3D CSV labeler started")
+        rospy.loginfo("MORAI live 3-camera 3D CSV labeler started")
         rospy.loginfo("scenario       = %s", self.scenario_name)
         rospy.loginfo("target classes = vehicle + pedestrian")
         rospy.loginfo("dataset_dir    = %s", self.dataset_dir)
         rospy.loginfo("max_sync_gap   = %.3f sec", self.max_sync_gap)
         rospy.loginfo("save_images    = %s", self.save_images)
+
+        rospy.loginfo("camera topics:")
+        for topic, cam_name in CAMERA_TOPICS.items():
+            rospy.loginfo("  %s -> %s", topic, cam_name)
+
         rospy.loginfo(
             "ROI: x %.1f~%.1f m, y -%.1f~%.1f m, z ±%.1f m",
             FRONT_RANGE_MIN,
@@ -257,18 +305,54 @@ class MoraiLive3DLabelerCSV:
         ts = msg_time_or_now(msg)
         self.obj_buffer.append((ts, msg))
 
-    def image_callback(self, img_msg):
-        img_ts = msg_time_or_now(img_msg)
+    def camera_callback(self, img_msg, cam_topic):
+        ts = msg_time_or_now(img_msg)
+        self.camera_buffers[cam_topic].append((ts, img_msg))
+
+        # 카메라 메시지가 들어올 때마다 현재 3개 카메라가 모두 모였는지 확인
+        self.try_process_synced_frame()
+
+    def try_process_synced_frame(self):
+        ref_buffer = self.camera_buffers[REFERENCE_CAMERA_TOPIC]
+
+        if not ref_buffer:
+            return
+
+        ref_ts, ref_msg = ref_buffer[-1]
+
+        if self.last_processed_ref_ts is not None:
+            if abs(ref_ts - self.last_processed_ref_ts) < 1e-6:
+                return
+
+        synced_camera_msgs = {}
+
+        for topic in CAMERA_TOPICS.keys():
+            cam_ts, cam_msg = find_closest_with_ts(
+                self.camera_buffers[topic],
+                ref_ts,
+                self.max_sync_gap
+            )
+
+            if cam_msg is None:
+                rospy.logwarn_throttle(
+                    1.0,
+                    "camera sync fail: topic=%s ref_ts=%.6f",
+                    topic,
+                    ref_ts
+                )
+                return
+
+            synced_camera_msgs[topic] = cam_msg
 
         ego_msg = find_closest(
             self.ego_buffer,
-            img_ts,
+            ref_ts,
             self.max_sync_gap
         )
 
         obj_msg = find_closest(
             self.obj_buffer,
-            img_ts,
+            ref_ts,
             self.max_sync_gap
         )
 
@@ -284,11 +368,16 @@ class MoraiLive3DLabelerCSV:
         stem = f"live_{self.frame_idx:06d}"
 
         if self.save_images:
-            self.save_compressed_image(img_msg, stem)
+            for topic, img_msg in synced_camera_msgs.items():
+                self.save_compressed_image(
+                    img_msg=img_msg,
+                    topic=topic,
+                    stem=stem
+                )
 
         rows = self.make_label_rows(
             frame_id=self.frame_idx,
-            timestamp=img_ts,
+            timestamp=ref_ts,
             ego_msg=ego_msg,
             obj_msg=obj_msg
         )
@@ -305,7 +394,7 @@ class MoraiLive3DLabelerCSV:
             num_ped = sum(1 for r in rows if r[6] == "pedestrian")
 
             rospy.loginfo(
-                "scenario %s | frame %06d | total: %d | vehicle: %d | pedestrian: %d",
+                "scenario %s | frame %06d | images: 3 | total: %d | vehicle: %d | pedestrian: %d",
                 self.scenario_name,
                 self.frame_idx,
                 len(rows),
@@ -313,17 +402,22 @@ class MoraiLive3DLabelerCSV:
                 num_ped
             )
 
+        self.last_processed_ref_ts = ref_ts
         self.frame_idx += 1
 
-    def save_compressed_image(self, img_msg, stem):
+    def save_compressed_image(self, img_msg, topic, stem):
         np_arr = np.frombuffer(img_msg.data, np.uint8)
         img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
         if img is None:
-            rospy.logwarn("failed to decode compressed image")
+            rospy.logwarn("failed to decode compressed image: %s", topic)
             return
 
-        img_path = os.path.join(self.img_dir, f"{stem}.jpg")
+        img_path = os.path.join(
+            self.camera_image_dirs[topic],
+            f"{stem}.jpg"
+        )
+
         cv2.imwrite(img_path, img)
 
     def make_label_rows(self, frame_id, timestamp, ego_msg, obj_msg):
@@ -426,10 +520,6 @@ class MoraiLive3DLabelerCSV:
         # =========================
         # Ego 기준 관심 영역 필터
         # =========================
-        # x < 0이면 Ego 뒤쪽 객체이므로 저장하지 않음
-        # x: 0~60m 전방
-        # y: 좌우 -30~30m
-        # z: ±3m
         if (
             pos_ego[0] < FRONT_RANGE_MIN or
             pos_ego[0] > FRONT_RANGE_MAX or
@@ -501,18 +591,18 @@ def main():
         "--max_sync_gap",
         type=float,
         default=0.10,
-        help="이미지-Ego/Object 동기화 허용 시간 차이"
+        help="카메라-Ego/Object 동기화 허용 시간 차이"
     )
 
     parser.add_argument(
-        "--save_images",
+        "--no_save_images",
         action="store_true",
-        help="compressed image도 jpg로 저장"
+        help="이미지 저장을 끄고 CSV만 저장"
     )
 
     args, _ = parser.parse_known_args()
 
-    rospy.init_node("morai_live_3d_labeler_csv", anonymous=False)
+    rospy.init_node("morai_live_3cam_3d_labeler_csv", anonymous=False)
 
     scenario_dir, scenario_name = create_next_scenario_dir(
         dataset_root=args.dataset_root,
@@ -522,11 +612,11 @@ def main():
 
     rospy.loginfo("new scenario folder = %s", scenario_dir)
 
-    MoraiLive3DLabelerCSV(
+    MoraiLive3Cam3DLabelerCSV(
         dataset_dir=scenario_dir,
         scenario_name=scenario_name,
         max_sync_gap=args.max_sync_gap,
-        save_images=args.save_images
+        save_images=not args.no_save_images
     )
 
     rospy.spin()
