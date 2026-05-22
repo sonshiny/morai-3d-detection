@@ -5,7 +5,7 @@ inference.py
 """
 
 import os
-import json
+import csv
 import argparse
 import random
 import numpy as np
@@ -100,6 +100,23 @@ def project_box_to_cam(box_ego, cam_name, orig_w=1600, orig_h=900):
     return int(u_min), int(v_min), int(u_max), int(v_max)
 
 
+def load_gt_from_csv(csv_path):
+    """CSV GT 파일에서 박스 리스트 반환. 각 항목: [x,y,z,ln_w,ln_l,ln_h,sin_yaw,cos_yaw,vx,vy,vz]"""
+    boxes = []
+    if not os.path.isfile(csv_path):
+        return boxes
+    with open(csv_path, newline='', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            boxes.append([
+                float(row['x']),       float(row['y']),       float(row['z']),
+                float(row['ln_w']),    float(row['ln_l']),    float(row['ln_h']),
+                float(row['sin_yaw']), float(row['cos_yaw']),
+                float(row['vx']),      float(row['vy']),      float(row['vz']),
+            ])
+    return boxes
+
+
 def run_inference(weights_path, stems, out_dir):
     os.makedirs(out_dir, exist_ok=True)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -110,22 +127,10 @@ def run_inference(weights_path, stems, out_dir):
     model.eval()
     print(f"[모델] {weights_path} 로드 완료\n")
 
-    groups_path = os.path.join(DATASET_DIR, 'frame_groups.json')
-    with open(groups_path) as f:
-        all_groups = json.load(f)
-    stem_to_group = {g['label_stem']: g for g in all_groups}
-
-    img_dir = os.path.join(DATASET_DIR, 'images')
-    lbl_dir = os.path.join(DATASET_DIR, 'labels_3d')
+    img_root = os.path.join(DATASET_DIR, 'images')
+    lbl_dir  = os.path.join(DATASET_DIR, 'labels_3d')
 
     for stem in stems:
-        if stem not in stem_to_group:
-            print(f"[SKIP] {stem}")
-            continue
-
-        group = stem_to_group[stem]
-        cams  = group['cams']
-
         n_cams     = len(CAM_ORDER)
         images     = torch.zeros(1, n_cams, 3, IMG_SIZE, IMG_SIZE)
         intrinsics = torch.zeros(1, n_cams, 3, 3)
@@ -134,27 +139,26 @@ def run_inference(weights_path, stems, out_dir):
         for ci, cam_name in enumerate(CAM_ORDER):
             intrinsics[0, ci] = torch.from_numpy(_INTRINSICS[cam_name])
             extrinsics[0, ci] = torch.from_numpy(_EXTRINSICS[cam_name])
-            if cam_name in cams:
-                path = os.path.join(img_dir, f"{cams[cam_name]}.jpg")
-                img  = cv2.imread(path)
-                if img is not None:
-                    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                    img = cv2.resize(img, (IMG_SIZE, IMG_SIZE))
-                    images[0, ci] = torch.from_numpy(img).permute(2,0,1).float()/255.
+            path = os.path.join(img_root, cam_name, f"{stem}.jpg")
+            img  = cv2.imread(path)
+            if img is not None:
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                img = cv2.resize(img, (IMG_SIZE, IMG_SIZE))
+                images[0, ci] = torch.from_numpy(img).permute(2, 0, 1).float() / 255.
 
         with torch.no_grad():
-            det_cls, det_box, map_cls, map_lines = model(
+            det_cls, det_box, _, _ = model(
                 images.to(device),
                 intrinsics.to(device),
                 extrinsics.to(device)
             )
 
-        probs = det_cls.softmax(-1)          # [900, 2] = vehicle/background
-        vehicle_scores = probs[:, 0]         # foreground score만 사용
-        keep_mask = vehicle_scores > SCORE_THRESH
+        probs          = det_cls.softmax(-1)
+        vehicle_scores = probs[:, 0]
+        keep_mask      = vehicle_scores > SCORE_THRESH
 
         boxes_cand = det_box[keep_mask].cpu().numpy()
-        cls_cand   = np.zeros(len(boxes_cand), dtype=np.int64)   # 전부 vehicle class 0
+        cls_cand   = np.zeros(len(boxes_cand), dtype=np.int64)
         scr_cand   = vehicle_scores[keep_mask].cpu().numpy()
 
         if len(boxes_cand) > 0:
@@ -169,19 +173,10 @@ def run_inference(weights_path, stems, out_dir):
 
         print(f"[{stem}] 예측: {len(boxes_keep)}개")
 
-        gt_boxes_raw = []
-        lbl_path = os.path.join(lbl_dir, f"{stem}.txt")
-        if os.path.isfile(lbl_path):
-            with open(lbl_path) as f:
-                for line in f:
-                    parts = line.strip().split()
-                    if len(parts) == 12:
-                        gt_boxes_raw.append(list(map(float, parts[1:])))
+        gt_boxes_raw = load_gt_from_csv(os.path.join(lbl_dir, f"{stem}.csv"))
 
         for cam_name in CAM_ORDER:
-            if cam_name not in cams:
-                continue
-            path = os.path.join(img_dir, f"{cams[cam_name]}.jpg")
+            path = os.path.join(img_root, cam_name, f"{stem}.jpg")
             img  = cv2.imread(path)
             if img is None:
                 continue
@@ -202,7 +197,7 @@ def run_inference(weights_path, stems, out_dir):
                     color = CLASS_COLORS.get(int(cls_id), (0, 255, 0))
                     cv2.rectangle(img, (bbox[0], bbox[1]),
                                   (bbox[2], bbox[3]), color, 2)
-                    label = f"{CLASS_NAMES.get(int(cls_id),'?')} {score:.2f}"
+                    label = f"{CLASS_NAMES.get(int(cls_id), '?')} {score:.2f}"
                     cv2.putText(img, label, (bbox[0]+2, bbox[1]-5),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.4,
                                 color, 1, cv2.LINE_AA)
@@ -230,9 +225,12 @@ if __name__ == '__main__':
     if args.stem:
         stems = [args.stem]
     else:
-        with open(os.path.join(DATASET_DIR, 'frame_groups.json')) as f:
-            all_groups = json.load(f)
-        all_stems = [g['label_stem'] for g in all_groups]
+        lbl_dir   = os.path.join(DATASET_DIR, 'labels_3d')
+        all_stems = sorted([
+            os.path.splitext(f)[0]
+            for f in os.listdir(lbl_dir)
+            if f.endswith('.csv')
+        ])
         stems = random.sample(all_stems, min(args.n, len(all_stems)))
 
     run_inference(args.weights, stems, args.out)

@@ -1,6 +1,6 @@
 import os
+import csv
 import cv2
-import json
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -16,51 +16,41 @@ class MoraiDataset(Dataset):
         images              : [3, 3, 224, 224]
         intrinsics          : [3, 3, 3]
         extrinsics          : [3, 4, 4]
-        dynamic_gt_boxes    : [N, 11]
+        dynamic_gt_boxes    : [N, 11]  (x,y,z,ln_w,ln_l,ln_h,sin_yaw,cos_yaw,vx,vy,vz)
         dynamic_gt_labels   : [N]
-        static_gt_polylines : [M, 20, 2]
-        static_gt_labels    : [M]
         stem                : str
     """
 
     def __init__(self, dataset_dir='./dataset', split='train', val_ratio=0.1):
-        self.img_dir    = os.path.join(dataset_dir, 'images')
-        self.lbl_dir    = os.path.join(dataset_dir, 'labels_3d')
-        self.static_dir = os.path.join(dataset_dir, 'labels_static')
-        groups_path     = os.path.join(dataset_dir, 'frame_groups.json')
+        self.img_root = os.path.join(dataset_dir, 'images')
+        self.lbl_dir  = os.path.join(dataset_dir, 'labels_3d')
 
-        if not os.path.isfile(groups_path):
+        if not os.path.isdir(self.lbl_dir):
             raise FileNotFoundError(
-                f"\n[ERROR] {groups_path} 없음!\n"
-                f"먼저 실행: python build_frame_groups.py your.bag"
+                f"\n[ERROR] {self.lbl_dir} 없음!\n"
+                f"먼저 morai_3d_live.py를 실행해 데이터를 수집하세요."
             )
 
-        with open(groups_path) as f:
-            all_groups = json.load(f)
+        all_stems = sorted([
+            os.path.splitext(f)[0]
+            for f in os.listdir(self.lbl_dir)
+            if f.endswith('.csv')
+        ])
 
-        # scenario4 제외 (빈 도로, vehicle GT 거의 없음 → detection collapse 원인)
-        before = len(all_groups)
-        all_groups = [g for g in all_groups if g.get('bag_key') != 'scenario4']
-        print(f"[MoraiDataset] scenario4 제외: {before} → {len(all_groups)} 그룹")
+        if len(all_stems) == 0:
+            raise FileNotFoundError(f"[ERROR] {self.lbl_dir} 에 CSV 파일이 없습니다.")
 
-        n_val   = max(1, int(len(all_groups) * val_ratio))
-        n_train = len(all_groups) - n_val
-        self.groups = all_groups[:n_train] if split == 'train' \
-                      else all_groups[n_train:]
+        n_val   = max(1, int(len(all_stems) * val_ratio))
+        n_train = len(all_stems) - n_val
+        self.stems = all_stems[:n_train] if split == 'train' else all_stems[n_train:]
 
-        self.has_static = os.path.isdir(self.static_dir)
-        if self.has_static:
-            print(f"[MoraiDataset] ✅ 정적 맵 라벨 폴더: {self.static_dir}")
-        else:
-            print(f"[MoraiDataset] ⚠️  정적 맵 라벨 없음 → Map Loss=0")
-
-        print(f"[MoraiDataset] {split}: {len(self.groups):,} 그룹")
+        print(f"[MoraiDataset] 전체: {len(all_stems):,} | {split}: {len(self.stems):,} 프레임")
 
     def __len__(self):
-        return len(self.groups)
+        return len(self.stems)
 
-    def _load_image(self, stem):
-        path    = os.path.join(self.img_dir, f"{stem}.jpg")
+    def _load_image(self, stem, cam_name):
+        path    = os.path.join(self.img_root, cam_name, f"{stem}.jpg")
         img_bgr = cv2.imread(path)
         if img_bgr is None:
             return torch.zeros(3, IMG_SIZE, IMG_SIZE)
@@ -68,106 +58,68 @@ class MoraiDataset(Dataset):
         img_rs  = cv2.resize(img_rgb, (IMG_SIZE, IMG_SIZE))
         return torch.from_numpy(img_rs).permute(2, 0, 1).float() / 255.0
 
-    def _load_static_labels(self, stem):
-        POINTS_PER_LINE = 20
-        empty = (
-            torch.zeros((0, POINTS_PER_LINE, 2), dtype=torch.float32),
-            torch.zeros((0,), dtype=torch.long),
-        )
+    def _load_labels(self, stem):
+        csv_path = os.path.join(self.lbl_dir, f"{stem}.csv")
+        boxes, labels = [], []
 
-        if not self.has_static:
-            return empty
+        if os.path.isfile(csv_path):
+            with open(csv_path, newline='', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    cls_id = int(float(row['class_id']))
+                    vals = [
+                        float(row['x']),       float(row['y']),       float(row['z']),
+                        float(row['ln_w']),    float(row['ln_l']),    float(row['ln_h']),
+                        float(row['sin_yaw']), float(row['cos_yaw']),
+                        float(row['vx']),      float(row['vy']),      float(row['vz']),
+                    ]
+                    boxes.append(vals)
+                    labels.append(cls_id)
 
-        lbl_path = os.path.join(self.static_dir, f"{stem}.txt")
-        if not os.path.isfile(lbl_path):
-            return empty
-
-        polylines, labels = [], []
-        with open(lbl_path) as f:
-            for line in f:
-                parts = line.strip().split()
-                if len(parts) != 41:   # 1(class) + 20*2(x,y)
-                    continue
-                cls_id  = int(float(parts[0]))
-                coords  = list(map(float, parts[1:]))
-                polyline = np.array(coords, dtype=np.float32).reshape(
-                    POINTS_PER_LINE, 2
-                )
-                polylines.append(polyline)
-                labels.append(cls_id)
-
-        if polylines:
+        if boxes:
             return (
-                torch.tensor(np.array(polylines), dtype=torch.float32),
+                torch.tensor(boxes,  dtype=torch.float32),
                 torch.tensor(labels, dtype=torch.long),
             )
-        return empty
+        return (
+            torch.zeros((0, 11), dtype=torch.float32),
+            torch.zeros((0,),    dtype=torch.long),
+        )
 
     def __getitem__(self, idx):
-        group      = self.groups[idx]
-        cams       = group['cams']
-        label_stem = group['label_stem']
-
-        # 이미지
+        stem   = self.stems[idx]
         n_cams = len(CAM_ORDER)
+
         images = torch.zeros(n_cams, 3, IMG_SIZE, IMG_SIZE)
         for ci, cam_name in enumerate(CAM_ORDER):
-            if cam_name in cams:
-                images[ci] = self._load_image(cams[cam_name])
+            images[ci] = self._load_image(stem, cam_name)
 
-        # 카메라 행렬 (camera_configs.py 기반)
         intrinsics = torch.zeros(n_cams, 3, 3)
         extrinsics = torch.zeros(n_cams, 4, 4)
         for ci, cam_name in enumerate(CAM_ORDER):
             intrinsics[ci] = torch.from_numpy(_INTRINSICS[cam_name])
             extrinsics[ci] = torch.from_numpy(_EXTRINSICS[cam_name])
 
-        # 동적 GT
-        lbl_path = os.path.join(self.lbl_dir, f"{label_stem}.txt")
-        boxes, labels = [], []
-        if os.path.isfile(lbl_path):
-            with open(lbl_path) as f:
-                for line in f:
-                    parts = line.strip().split()
-                    if len(parts) != 12:
-                        continue
-                    cls_id = int(float(parts[0]))
-                    vals   = list(map(float, parts[1:]))
-                    boxes.append(vals)
-                    labels.append(cls_id)
-
-        if boxes:
-            gt_boxes  = torch.tensor(boxes,  dtype=torch.float32)
-            gt_labels = torch.tensor(labels, dtype=torch.long)
-        else:
-            gt_boxes  = torch.zeros((0, 11), dtype=torch.float32)
-            gt_labels = torch.zeros((0,),    dtype=torch.long)
-
-        # 정적 GT
-        static_polylines, static_labels = self._load_static_labels(label_stem)
+        gt_boxes, gt_labels = self._load_labels(stem)
 
         return {
-            'images':              images,
-            'intrinsics':          intrinsics,
-            'extrinsics':          extrinsics,
-            'dynamic_gt_boxes':    gt_boxes,
-            'dynamic_gt_labels':   gt_labels,
-            'static_gt_polylines': static_polylines,
-            'static_gt_labels':    static_labels,
-            'stem':                label_stem,
+            'images':           images,
+            'intrinsics':       intrinsics,
+            'extrinsics':       extrinsics,
+            'dynamic_gt_boxes':  gt_boxes,
+            'dynamic_gt_labels': gt_labels,
+            'stem':             stem,
         }
 
 
 def morai_collate_fn(batch):
     return {
-        'images':              torch.stack([b['images']     for b in batch]),
-        'intrinsics':          torch.stack([b['intrinsics'] for b in batch]),
-        'extrinsics':          torch.stack([b['extrinsics'] for b in batch]),
-        'dynamic_gt_boxes':    [b['dynamic_gt_boxes']    for b in batch],
-        'dynamic_gt_labels':   [b['dynamic_gt_labels']   for b in batch],
-        'static_gt_polylines': [b['static_gt_polylines'] for b in batch],
-        'static_gt_labels':    [b['static_gt_labels']    for b in batch],
-        'stem':                [b['stem'] for b in batch],
+        'images':           torch.stack([b['images']     for b in batch]),
+        'intrinsics':       torch.stack([b['intrinsics'] for b in batch]),
+        'extrinsics':       torch.stack([b['extrinsics'] for b in batch]),
+        'dynamic_gt_boxes':  [b['dynamic_gt_boxes']  for b in batch],
+        'dynamic_gt_labels': [b['dynamic_gt_labels'] for b in batch],
+        'stem':             [b['stem'] for b in batch],
     }
 
 
@@ -180,5 +132,4 @@ if __name__ == "__main__":
     print(f"intrinsics : {batch['intrinsics'].shape}")
     print(f"extrinsics : {batch['extrinsics'].shape}")
     print(f"GT boxes   : {batch['dynamic_gt_boxes'][0].shape}")
-    print(f"GT static  : {batch['static_gt_polylines'][0].shape}")
     print("✅ 데이터셋 정상!")
