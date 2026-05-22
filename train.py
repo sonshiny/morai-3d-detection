@@ -252,14 +252,93 @@ class AutoNavModel(nn.Module):
 
 
 # ===========================================================
+# Val 헬퍼 — Recall@thr & 검증 루프
+# ===========================================================
+@torch.no_grad()
+def compute_recall_at(det_classes, det_boxes, gt_boxes, threshold=2.0, bg_idx=2):
+    """
+    1 sample의 Recall@threshold(m):
+    foreground(argmax != bg) 예측 중 각 GT마다 가장 가까운 xy 거리가 threshold 미만인 비율.
+    GT 없으면 None.
+    """
+    if gt_boxes.numel() == 0:
+        return None
+    preds = det_classes.argmax(dim=-1)              # [900]
+    fg_mask = preds != bg_idx                       # [900]
+    if fg_mask.sum() == 0:
+        return 0.0
+    fg_xy = det_boxes[fg_mask, :2]                  # [N_fg, 2]
+    gt_xy = gt_boxes[:, :2]                         # [N_gt, 2]
+    dmin = torch.cdist(gt_xy, fg_xy).min(dim=1).values
+    return (dmin < threshold).float().mean().item()
+
+
+@torch.no_grad()
+def validate(model, loader, criterion, device, compute_metric=False, recall_thr=2.0):
+    """
+    val set 전체에 대해 평균 detection loss를 계산하고,
+    compute_metric=True면 Recall@recall_thr도 같이 평균.
+    반환: (val_loss, val_recall_or_None)
+    """
+    model.eval()
+    loss_sum = 0.0
+    n_batches = 0
+    recalls = []
+
+    for batch in loader:
+        images     = batch['images'].to(device)
+        intrinsics = batch['intrinsics'].to(device)
+        extrinsics = batch['extrinsics'].to(device)
+        n = images.shape[0]
+
+        det_classes_b, det_boxes_b, _, _ = model(images, intrinsics, extrinsics)
+
+        sample_loss = 0.0
+        for i in range(n):
+            gt_boxes   = batch['dynamic_gt_boxes'][i].to(device)
+            gt_classes = batch['dynamic_gt_labels'][i].to(device)
+            det_loss, _, _ = criterion(
+                det_classes_b[i], det_boxes_b[i], gt_classes, gt_boxes
+            )
+            sample_loss += det_loss.item()
+
+            if compute_metric:
+                r = compute_recall_at(
+                    det_classes_b[i], det_boxes_b[i], gt_boxes, threshold=recall_thr
+                )
+                if r is not None:
+                    recalls.append(r)
+
+        loss_sum += sample_loss / n
+        n_batches += 1
+
+    avg_loss = loss_sum / max(n_batches, 1)
+    avg_recall = (sum(recalls) / len(recalls)) if recalls else None
+    return avg_loss, avg_recall
+
+
+# ===========================================================
 # 학습 루프 (동적 객체만 학습 — 정적 맵 head는 forward에서만 통과)
 # ===========================================================
 if __name__ == "__main__":
-    print("SparseDrive 인지 모듈 학습을 시작합니다! [동적 객체 전용]")
-    print("   - [P0-#1] anchor별 visible 카메라 수로 정규화")
-    print("   - [P0-#2] 5개 키포인트 (중심 + BEV 4 corner)")
-    print("   - [P0-#3] Map polyline 20개 점 모두 카메라 sampling (forward only)")
-    print("   - [P0-#4] sin/cos unit norm 정규화\n")
+    # ─── Config ────────────────────────────────────────
+    # val로 뺄 시나리오 이름. None이면 알파벳 정렬 마지막 1개를 자동 사용.
+    # ⚠️ make_kmeans.py 의 --val-scenarios와 반드시 일치시킬 것.
+    VAL_SCENARIOS = None
+
+    NUM_EPOCHS           = 100
+    BATCH_SIZE           = 8
+    EARLY_STOP_PATIENCE  = 10
+    EARLY_STOP_MIN_DELTA = 1e-4
+    METRIC_EVERY         = 5      # N epoch마다 val Recall@thr 추가 계산
+    RECALL_THR           = 2.0    # Recall@2m
+    # ───────────────────────────────────────────────────
+
+    print("SparseDrive 인지 모듈 학습 시작! [동적 객체 전용]")
+    print(f"   - val 시나리오: {'auto(last)' if VAL_SCENARIOS is None else VAL_SCENARIOS}")
+    print(f"   - best 기준   : val loss")
+    print(f"   - early stop  : patience={EARLY_STOP_PATIENCE}, min_delta={EARLY_STOP_MIN_DELTA}")
+    print(f"   - metric      : Recall@{RECALL_THR}m, 매 {METRIC_EVERY} epoch\n")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[디바이스] {device}\n")
@@ -268,9 +347,13 @@ if __name__ == "__main__":
     start_epoch = 0
     print("[학습] 처음부터 학습\n")
 
-    dataset    = MoraiDataset(dataset_root='./dataset', split='train')
-    dataloader = DataLoader(dataset, batch_size=8, shuffle=True,
-                            collate_fn=morai_collate_fn, num_workers=2)
+    train_ds = MoraiDataset(dataset_root='./dataset', split='train', val_scenarios=VAL_SCENARIOS)
+    val_ds   = MoraiDataset(dataset_root='./dataset', split='val',   val_scenarios=VAL_SCENARIOS)
+
+    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,
+                              collate_fn=morai_collate_fn, num_workers=2)
+    val_loader   = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False,
+                              collate_fn=morai_collate_fn, num_workers=2)
 
     # num_classes=2: vehicle, pedestrian (bg_class=2)
     det_criterion = CustomLoss(num_classes=2).to(device)
@@ -285,19 +368,19 @@ if __name__ == "__main__":
     ], weight_decay=1e-3)
 
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=100, eta_min=1e-6
+        optimizer, T_max=NUM_EPOCHS, eta_min=1e-6
     )
 
-    num_epochs     = 100
-    best_loss      = float('inf')
-    DET_EARLY_STOP = 0.05
+    best_val_loss     = float('inf')
+    epochs_no_improve = 0
 
-    for epoch in range(start_epoch, num_epochs):
+    for epoch in range(start_epoch, NUM_EPOCHS):
+        # ─── Train ───────────────────────────────────────
         model.train()
-        print(f"========== [Epoch {epoch+1}/{num_epochs}] ==========")
-        epoch_loss = 0.0
+        print(f"\n========== [Epoch {epoch+1}/{NUM_EPOCHS}] ==========")
+        train_loss_sum = 0.0
 
-        for step, batch in enumerate(dataloader):
+        for step, batch in enumerate(train_loader):
             images     = batch['images'].to(device)
             intrinsics = batch['intrinsics'].to(device)
             extrinsics = batch['extrinsics'].to(device)
@@ -308,16 +391,13 @@ if __name__ == "__main__":
             )
 
             batch_loss = 0.0
-
             for i in range(n):
                 gt_boxes   = batch['dynamic_gt_boxes'][i].to(device)
                 gt_classes = batch['dynamic_gt_labels'][i].to(device)
-
                 det_loss, _, _ = det_criterion(
                     det_classes_b[i], det_boxes_b[i], gt_classes, gt_boxes
                 )
-                batch_loss += det_loss
-
+                batch_loss = batch_loss + det_loss
             batch_loss = batch_loss / n
 
             optimizer.zero_grad()
@@ -325,33 +405,51 @@ if __name__ == "__main__":
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
 
-            epoch_loss += batch_loss.item()
+            train_loss_sum += batch_loss.item()
 
             if step % 10 == 0:
-                print(f"  Step {step:03d} | Det Loss: {batch_loss.item():.4f}")
+                print(f"  [train] Step {step:03d} | Det Loss: {batch_loss.item():.4f}")
 
         scheduler.step()
+        train_loss = train_loss_sum / len(train_loader)
 
-        avg_loss = epoch_loss / len(dataloader)
+        # ─── Val ─────────────────────────────────────────
+        compute_metric = ((epoch + 1) % METRIC_EVERY == 0)
+        val_loss, val_recall = validate(
+            model, val_loader, det_criterion, device,
+            compute_metric=compute_metric, recall_thr=RECALL_THR,
+        )
 
-        print(f"\n🚀 Epoch {epoch+1} 완료! "
-              f"평균 Det Loss: {avg_loss:.4f} "
-              f"| LR: {scheduler.get_last_lr()[0]:.2e}\n")
+        lr = scheduler.get_last_lr()[0]
+        msg = (f"\n📊 Epoch {epoch+1} | "
+               f"Train: {train_loss:.4f} | Val: {val_loss:.4f} | LR: {lr:.2e}")
+        if val_recall is not None:
+            msg += f"\n   └─ Val Recall@{RECALL_THR}m: {val_recall:.4f}"
+        print(msg)
 
-        if avg_loss < best_loss:
-            best_loss = avg_loss
+        # ─── Best save (val loss 기준) ───────────────────
+        if val_loss < best_val_loss - EARLY_STOP_MIN_DELTA:
+            best_val_loss = val_loss
+            epochs_no_improve = 0
             torch.save(model.state_dict(), "best_model.pth")
-            print(f"  💾 Best 모델 저장! Loss: {best_loss:.4f}\n")
+            print(f"   💾 Best 저장! Val Loss: {best_val_loss:.4f}")
+        else:
+            epochs_no_improve += 1
+            print(f"   ⏳ Val 개선 없음 ({epochs_no_improve}/{EARLY_STOP_PATIENCE})")
 
+        # ─── 정기 체크포인트 ──────────────────────────────
         if (epoch + 1) % 10 == 0:
             ckpt_path = f"checkpoint_epoch{epoch+1}.pth"
             torch.save(model.state_dict(), ckpt_path)
-            print(f"  📌 체크포인트 저장: {ckpt_path}\n")
+            print(f"   📌 체크포인트 저장: {ckpt_path}")
 
-        if avg_loss < DET_EARLY_STOP:
-            print(f"⚠️  Early Stopping! Det Loss {avg_loss:.4f} < {DET_EARLY_STOP}")
+        # ─── Early stop (val 기준) ───────────────────────
+        if epochs_no_improve >= EARLY_STOP_PATIENCE:
+            print(f"\n⚠️  Early Stopping! "
+                  f"Val Loss가 {EARLY_STOP_PATIENCE} epoch 동안 개선 없음.")
             break
 
-    print("🎉 학습 완료!")
+    print("\n🎉 학습 완료!")
     torch.save(model.state_dict(), "morai_autonav_weights.pth")
-    print("💾 최종 모델 저장 완료: morai_autonav_weights.pth")
+    print(f"💾 최종 모델 저장: morai_autonav_weights.pth")
+    print(f"📊 Best Val Loss: {best_val_loss:.4f}")

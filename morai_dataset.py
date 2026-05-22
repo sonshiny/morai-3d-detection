@@ -18,38 +18,64 @@ class MoraiDataset(Dataset):
         images/cam_front_left/live_000000.jpg
         images/cam_front_right/live_000000.jpg
         labels_3d/live_000000.csv
-      scen02/
-        ...
+      scen02/...
+
+    Split 방식 (시나리오 단위 — data leakage 방지):
+      - val_scenarios에 명시된 시나리오만 val, 나머지 전부 train
+      - val_scenarios=None → 알파벳 정렬 마지막 1개를 자동 val
 
     __getitem__ 반환:
         images              : [3, 3, 224, 224]
         intrinsics          : [3, 3, 3]
         extrinsics          : [3, 4, 4]
-        dynamic_gt_boxes    : [N, 11]  (x,y,z,ln_w,ln_l,ln_h,sin_yaw,cos_yaw,vx,vy,vz)
+        dynamic_gt_boxes    : [N, 11]
         dynamic_gt_labels   : [N]
         stem                : str
     """
 
-    def __init__(self, dataset_root='./dataset', split='train', val_ratio=0.1):
+    def __init__(self, dataset_root='./dataset', split='train', val_scenarios=None):
+        if split not in ('train', 'val'):
+            raise ValueError(f"split는 'train' 또는 'val'이어야 합니다: {split}")
         if not os.path.isdir(dataset_root):
             raise FileNotFoundError(f"[ERROR] dataset_root 없음: {dataset_root}")
 
-        # scen01, scen02, ... 형태 폴더 모두 수집
         scen_dirs = sorted([
             os.path.join(dataset_root, d)
             for d in os.listdir(dataset_root)
             if os.path.isdir(os.path.join(dataset_root, d))
             and os.path.isdir(os.path.join(dataset_root, d, 'labels_3d'))
         ])
-
         if not scen_dirs:
             raise FileNotFoundError(
                 f"[ERROR] {dataset_root} 아래에 labels_3d 폴더를 가진 시나리오가 없습니다."
             )
 
-        # (scen_dir, stem) 쌍 전체 수집
-        all_items = []
-        for scen_dir in scen_dirs:
+        scen_names = [os.path.basename(d) for d in scen_dirs]
+
+        if val_scenarios is None:
+            val_scenarios = [scen_names[-1]]
+        else:
+            val_scenarios = list(val_scenarios)
+            unknown = [n for n in val_scenarios if n not in scen_names]
+            if unknown:
+                raise ValueError(
+                    f"[ERROR] val_scenarios에 존재하지 않는 시나리오: {unknown}\n"
+                    f"  사용 가능한 시나리오: {scen_names}"
+                )
+
+        if split == 'train':
+            selected = [d for d, n in zip(scen_dirs, scen_names) if n not in val_scenarios]
+        else:
+            selected = [d for d, n in zip(scen_dirs, scen_names) if n in val_scenarios]
+
+        if not selected:
+            raise RuntimeError(
+                f"[ERROR] split='{split}'에 해당하는 시나리오가 없습니다.\n"
+                f"  val_scenarios={val_scenarios}, 전체={scen_names}"
+            )
+
+        self.items = []
+        for scen_dir in selected:
             lbl_dir = os.path.join(scen_dir, 'labels_3d')
             stems = sorted([
                 os.path.splitext(f)[0]
@@ -57,18 +83,13 @@ class MoraiDataset(Dataset):
                 if f.endswith('.csv')
             ])
             for stem in stems:
-                all_items.append((scen_dir, stem))
+                self.items.append((scen_dir, stem))
 
-        if not all_items:
-            raise FileNotFoundError(f"[ERROR] CSV 파일이 하나도 없습니다.")
+        if not self.items:
+            raise FileNotFoundError(f"[ERROR] {split} split에 CSV 파일이 없습니다.")
 
-        n_val   = max(1, int(len(all_items) * val_ratio))
-        n_train = len(all_items) - n_val
-        self.items = all_items[:n_train] if split == 'train' else all_items[n_train:]
-
-        scen_names = [os.path.basename(d) for d in scen_dirs]
-        print(f"[MoraiDataset] 시나리오: {scen_names}")
-        print(f"[MoraiDataset] 전체: {len(all_items):,} | {split}: {len(self.items):,} 프레임")
+        selected_names = [os.path.basename(d) for d in selected]
+        print(f"[MoraiDataset:{split}] 시나리오 {selected_names} | {len(self.items):,} 프레임")
 
     def __len__(self):
         return len(self.items)
@@ -148,8 +169,10 @@ def morai_collate_fn(batch):
 
 
 if __name__ == "__main__":
-    ds     = MoraiDataset(dataset_root='./dataset', split='train')
-    loader = DataLoader(ds, batch_size=2, shuffle=True,
+    ds_tr = MoraiDataset(dataset_root='./dataset', split='train')
+    ds_va = MoraiDataset(dataset_root='./dataset', split='val')
+
+    loader = DataLoader(ds_tr, batch_size=2, shuffle=True,
                         collate_fn=morai_collate_fn, num_workers=0)
     batch  = next(iter(loader))
     print(f"images     : {batch['images'].shape}")
