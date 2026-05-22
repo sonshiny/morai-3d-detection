@@ -3,28 +3,31 @@ import numpy as np
 import os
 import math
 
+NUM_ANCHORS = 900
+ANCHOR_XY_FILE = 'anchor_kmeans_xy.npy'
+ANCHOR_FULL_FILE = 'anchor_kmeans_full.npy'
+
 
 def generate_anchors():
     """
     3D 위치 앵커: [900, 3]
     K-means 클러스터링으로 GT가 자주 등장하는 위치에 앵커 배치
     """
-    kmeans_path = os.path.join(os.path.dirname(__file__), 'anchor_kmeans_xy.npy')
+    kmeans_path = os.path.join(os.path.dirname(__file__), ANCHOR_XY_FILE)
 
     if os.path.isfile(kmeans_path):
         centers_xy = np.load(kmeans_path)
-        if centers_xy.shape != (900, 2):
+        if centers_xy.shape != (NUM_ANCHORS, 2):
             print(f"[anchor_generator] ⚠️  K-means shape 이상: {centers_xy.shape}, 균일 그리드로 fallback")
         else:
-            z = np.zeros((900, 1), dtype=np.float32)
+            z = np.zeros((NUM_ANCHORS, 1), dtype=np.float32)
             anchors_np = np.hstack([centers_xy.astype(np.float32), z])
             return torch.from_numpy(anchors_np)
 
-    # K-means 파일 없으면 균일 그리드 fallback
-    print("[anchor_generator] K-means 파일 없음 → 균일 그리드 사용")
-    # 6 카메라(전방위) 전제
-    x = torch.linspace(-50, 50, 30)
-    y = torch.linspace(-50, 50, 30)
+    # K-means 파일 없으면 3전방 카메라 ROI에 맞춘 grid fallback
+    print("[anchor_generator] K-means 파일 없음 → 전방 ROI 균일 그리드 사용")
+    x = torch.linspace(0, 60, 30)
+    y = torch.linspace(-30, 30, 30)
     z = torch.tensor([0.0])
     grid_x, grid_y, grid_z = torch.meshgrid(x, y, z, indexing='ij')
     return torch.stack([grid_x, grid_y, grid_z], dim=-1).reshape(-1, 3)
@@ -42,6 +45,13 @@ def generate_anchors_full():
       - yaw: -π/2 (GT의 동일 방향 NPC 오프셋과 일치)
       - velocity: 0
     """
+    full_path = os.path.join(os.path.dirname(__file__), ANCHOR_FULL_FILE)
+    if os.path.isfile(full_path):
+        anchors_full = np.load(full_path)
+        if anchors_full.shape == (NUM_ANCHORS, 11):
+            return torch.from_numpy(anchors_full.astype(np.float32))
+        print(f"[anchor_generator] ⚠️  full K-means shape 이상: {anchors_full.shape}, XY anchor로 fallback")
+
     anchors_3d = generate_anchors()
     N = anchors_3d.shape[0]
 

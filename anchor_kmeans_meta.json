@@ -1,0 +1,27 @@
+{
+  "k": 900,
+  "seed": 42,
+  "val_scenarios": [
+    "scen17",
+    "scen18"
+  ],
+  "train_scenarios": [
+    "scen01",
+    "scen02",
+    "scen03",
+    "scen04",
+    "scen05",
+    "scen06",
+    "scen07",
+    "scen08",
+    "scen09",
+    "scen10",
+    "scen11",
+    "scen12",
+    "scen13",
+    "scen14",
+    "scen15",
+    "scen16"
+  ],
+  "num_train_boxes": 10426
+}

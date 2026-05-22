@@ -16,6 +16,7 @@ from train import AutoNavModel
 from camera_configs import (INTRINSICS as _INTRINSICS,
                              EXTRINSICS as _EXTRINSICS,
                              CAM_ORDER)
+from morai_dataset import scale_intrinsic_for_input
 
 DATASET_DIR  = './dataset/scen01'
 SCORE_THRESH = 0.2
@@ -140,7 +141,7 @@ def run_inference(weights_path, stems, out_dir):
         extrinsics = torch.zeros(1, n_cams, 4, 4)
 
         for ci, cam_name in enumerate(CAM_ORDER):
-            intrinsics[0, ci] = torch.from_numpy(_INTRINSICS[cam_name])
+            intrinsics[0, ci] = torch.from_numpy(scale_intrinsic_for_input(_INTRINSICS[cam_name]))
             extrinsics[0, ci] = torch.from_numpy(_EXTRINSICS[cam_name])
             path = os.path.join(img_root, cam_name, f"{stem}.jpg")
             img  = cv2.imread(path)
@@ -150,18 +151,20 @@ def run_inference(weights_path, stems, out_dir):
                 images[0, ci] = torch.from_numpy(img).permute(2, 0, 1).float() / 255.
 
         with torch.no_grad():
-            det_cls, det_box, _, _ = model(
+            det_cls, det_box = model(
                 images.to(device),
                 intrinsics.to(device),
                 extrinsics.to(device)
             )
 
+        det_cls = det_cls[0]
+        det_box = det_box[0]
+
         # det_cls : [900, 3]  (0=vehicle, 1=pedestrian, 2=bg)
         probs       = det_cls.softmax(-1).cpu().numpy()
-        fg_scores   = probs[:, :2]                    # [900, 2]
-        best_cls    = np.argmax(fg_scores, axis=1)    # [900]
-        best_score  = np.max(fg_scores, axis=1)       # [900]
-        keep_mask   = best_score > SCORE_THRESH
+        best_cls    = np.argmax(probs, axis=1)        # [900]
+        best_score  = np.max(probs, axis=1)           # [900]
+        keep_mask   = (best_cls != 2) & (best_score > SCORE_THRESH)
 
         boxes_cand = det_box.cpu().numpy()[keep_mask]
         cls_cand   = best_cls[keep_mask]
