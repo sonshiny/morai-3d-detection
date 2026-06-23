@@ -1,0 +1,1910 @@
+SparseDrive-style 3-camera detection 학습 시작! [vehicle + pedestrian]
+   - val 시나리오: auto(last 5)
+   - kmeans anchor: train split only, K=900, always remake
+   - best 기준   : val recall (동률 시 val loss)
+   - early stop  : patience=20, min_delta=0.0001
+   - metric      : Precision/Recall@2.0m, 매 1 epoch
+
+[디바이스] cuda
+
+[make_kmeans] GT 총 27,162개 | K=900
+  x range: 0.00 ~ 59.98
+  y range: -29.98 ~ 29.99
+[make_kmeans] sklearn 없음 → NumPy fallback K-means 사용
+[make_kmeans] 저장 완료: anchor_kmeans_xy.npy shape=(900, 2)
+[make_kmeans] 저장 완료: anchor_kmeans_full.npy shape=(900, 11)
+[make_kmeans] 저장 완료: anchor_kmeans_meta.json
+  center x: 0.32 ~ 59.67
+  center y: -29.79 ~ 29.37
+[학습] 처음부터 학습
+
+[MoraiDataset:train] 시나리오 ['scen01', 'scen02', 'scen03', 'scen04', 'scen05', 'scen06', 'scen07', 'scen08', 'scen09', 'scen10', 'scen11', 'scen12', 'scen13', 'scen14', 'scen15', 'scen16', 'scen17', 'scen18', 'scen19', 'scen20', 'scen21', 'scen22', 'scen23', 'scen24', 'scen25', 'scen26', 'scen27', 'scen28', 'scen29', 'scen30', 'scen31', 'scen32', 'scen33', 'scen34', 'scen35', 'scen36', 'scen37', 'scen38', 'scen39', 'scen40', 'scen41', 'scen42'] | 12,140 프레임
+[MoraiDataset:val] 시나리오 ['scen43', 'scen44', 'scen45', 'scen46', 'scen47'] | 1,851 프레임
+
+========== [Epoch 1/100] ==========
+Corrupt JPEG data: 92 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 7442 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1801 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 570 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 266 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 3 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 924 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 322 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 298 extraneous bytes before marker 0xd9
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: 306 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 1091 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 302 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 76 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 16 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 317 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 1597 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1394 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 4 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 363 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 159 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 8669 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 554 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1350 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 3529 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 9 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 5681 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 105 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 2 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 22 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 103 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 2636 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 5 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 20 extraneous bytes before marker 0xd9
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1163 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 573 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 253 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 42 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 68 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+  [train] Step 000 | Det Loss: 74.4190
+  [train] Step 010 | Det Loss: 7.0035
+  [train] Step 020 | Det Loss: 6.0972
+  [train] Step 030 | Det Loss: 5.3775
+  [train] Step 040 | Det Loss: 6.5853
+  [train] Step 050 | Det Loss: 5.7778
+  [train] Step 060 | Det Loss: 4.3737
+  [train] Step 070 | Det Loss: 4.2329
+  [train] Step 080 | Det Loss: 5.1023
+  [train] Step 090 | Det Loss: 4.1373
+  [train] Step 100 | Det Loss: 5.1867
+  [train] Step 110 | Det Loss: 5.3861
+  [train] Step 120 | Det Loss: 4.8566
+  [train] Step 130 | Det Loss: 5.4250
+  [train] Step 140 | Det Loss: 4.1910
+  [train] Step 150 | Det Loss: 3.7125
+  [train] Step 160 | Det Loss: 4.3350
+  [train] Step 170 | Det Loss: 2.3248
+  [train] Step 180 | Det Loss: 4.8681
+  [train] Step 190 | Det Loss: 4.2353
+  [train] Step 200 | Det Loss: 4.1728
+  [train] Step 210 | Det Loss: 3.7028
+  [train] Step 220 | Det Loss: 4.5348
+  [train] Step 230 | Det Loss: 4.3676
+  [train] Step 240 | Det Loss: 3.6968
+  [train] Step 250 | Det Loss: 3.6842
+  [train] Step 260 | Det Loss: 4.3850
+  [train] Step 270 | Det Loss: 4.1532
+  [train] Step 280 | Det Loss: 4.7598
+  [train] Step 290 | Det Loss: 3.9484
+  [train] Step 300 | Det Loss: 4.2339
+  [train] Step 310 | Det Loss: 3.2333
+  [train] Step 320 | Det Loss: 4.0050
+  [train] Step 330 | Det Loss: 4.2708
+  [train] Step 340 | Det Loss: 3.6799
+  [train] Step 350 | Det Loss: 4.3253
+  [train] Step 360 | Det Loss: 4.4285
+  [train] Step 370 | Det Loss: 3.8236
+  [train] Step 380 | Det Loss: 3.4891
+  [train] Step 390 | Det Loss: 4.2287
+  [train] Step 400 | Det Loss: 3.8349
+  [train] Step 410 | Det Loss: 4.0165
+  [train] Step 420 | Det Loss: 3.6381
+  [train] Step 430 | Det Loss: 3.3524
+  [train] Step 440 | Det Loss: 3.4828
+  [train] Step 450 | Det Loss: 3.6822
+  [train] Step 460 | Det Loss: 3.4189
+  [train] Step 470 | Det Loss: 3.5040
+  [train] Step 480 | Det Loss: 3.2892
+  [train] Step 490 | Det Loss: 4.1132
+  [train] Step 500 | Det Loss: 4.0719
+  [train] Step 510 | Det Loss: 3.2242
+  [train] Step 520 | Det Loss: 4.3891
+  [train] Step 530 | Det Loss: 3.1554
+  [train] Step 540 | Det Loss: 3.6998
+  [train] Step 550 | Det Loss: 3.0278
+  [train] Step 560 | Det Loss: 2.9554
+  [train] Step 570 | Det Loss: 2.8369
+  [train] Step 580 | Det Loss: 3.0327
+  [train] Step 590 | Det Loss: 3.4551
+  [train] Step 600 | Det Loss: 2.8682
+  [train] Step 610 | Det Loss: 3.2962
+  [train] Step 620 | Det Loss: 2.1522
+  [train] Step 630 | Det Loss: 2.8150
+  [train] Step 640 | Det Loss: 3.9974
+  [train] Step 650 | Det Loss: 3.0662
+  [train] Step 660 | Det Loss: 3.6667
+  [train] Step 670 | Det Loss: 3.6943
+  [train] Step 680 | Det Loss: 3.2588
+  [train] Step 690 | Det Loss: 3.3072
+  [train] Step 700 | Det Loss: 2.6474
+  [train] Step 710 | Det Loss: 3.5993
+  [train] Step 720 | Det Loss: 3.3224
+  [train] Step 730 | Det Loss: 3.2330
+  [train] Step 740 | Det Loss: 3.3794
+  [train] Step 750 | Det Loss: 2.1732
+  [train] Step 760 | Det Loss: 2.7852
+  [train] Step 770 | Det Loss: 2.8767
+  [train] Step 780 | Det Loss: 2.3906
+  [train] Step 790 | Det Loss: 3.4916
+  [train] Step 800 | Det Loss: 1.5502
+  [train] Step 810 | Det Loss: 2.8809
+  [train] Step 820 | Det Loss: 3.0982
+  [train] Step 830 | Det Loss: 2.3517
+  [train] Step 840 | Det Loss: 3.6501
+  [train] Step 850 | Det Loss: 2.3041
+  [train] Step 860 | Det Loss: 2.9018
+  [train] Step 870 | Det Loss: 3.4624
+  [train] Step 880 | Det Loss: 3.3258
+  [train] Step 890 | Det Loss: 4.4858
+  [train] Step 900 | Det Loss: 2.8668
+  [train] Step 910 | Det Loss: 2.9094
+  [train] Step 920 | Det Loss: 2.9650
+  [train] Step 930 | Det Loss: 2.7304
+  [train] Step 940 | Det Loss: 2.8876
+  [train] Step 950 | Det Loss: 3.2903
+  [train] Step 960 | Det Loss: 2.0696
+  [train] Step 970 | Det Loss: 2.7612
+  [train] Step 980 | Det Loss: 1.5430
+  [train] Step 990 | Det Loss: 3.1670
+  [train] Step 1000 | Det Loss: 3.1149
+  [train] Step 1010 | Det Loss: 2.9045
+  [train] Step 1020 | Det Loss: 4.2650
+  [train] Step 1030 | Det Loss: 2.3114
+  [train] Step 1040 | Det Loss: 3.2915
+  [train] Step 1050 | Det Loss: 2.6890
+  [train] Step 1060 | Det Loss: 3.1262
+  [train] Step 1070 | Det Loss: 2.8431
+  [train] Step 1080 | Det Loss: 2.4546
+  [train] Step 1090 | Det Loss: 2.6781
+  [train] Step 1100 | Det Loss: 2.2126
+  [train] Step 1110 | Det Loss: 2.9005
+  [train] Step 1120 | Det Loss: 2.5376
+  [train] Step 1130 | Det Loss: 2.8035
+  [train] Step 1140 | Det Loss: 3.0410
+  [train] Step 1150 | Det Loss: 3.3611
+  [train] Step 1160 | Det Loss: 3.2177
+  [train] Step 1170 | Det Loss: 2.1663
+  [train] Step 1180 | Det Loss: 4.5799
+  [train] Step 1190 | Det Loss: 2.8738
+  [train] Step 1200 | Det Loss: 2.1081
+  [train] Step 1210 | Det Loss: 2.5766
+  [train] Step 1220 | Det Loss: 2.6055
+  [train] Step 1230 | Det Loss: 2.6028
+  [train] Step 1240 | Det Loss: 2.3653
+  [train] Step 1250 | Det Loss: 3.4988
+  [train] Step 1260 | Det Loss: 2.0623
+  [train] Step 1270 | Det Loss: 2.4002
+  [train] Step 1280 | Det Loss: 3.0694
+  [train] Step 1290 | Det Loss: 2.7708
+  [train] Step 1300 | Det Loss: 2.4539
+  [train] Step 1310 | Det Loss: 1.2837
+  [train] Step 1320 | Det Loss: 2.3179
+  [train] Step 1330 | Det Loss: 3.2627
+  [train] Step 1340 | Det Loss: 2.8127
+  [train] Step 1350 | Det Loss: 2.1198
+  [train] Step 1360 | Det Loss: 2.4772
+  [train] Step 1370 | Det Loss: 1.8717
+  [train] Step 1380 | Det Loss: 3.4647
+  [train] Step 1390 | Det Loss: 2.1532
+  [train] Step 1400 | Det Loss: 2.0820
+  [train] Step 1410 | Det Loss: 2.8167
+  [train] Step 1420 | Det Loss: 2.1641
+  [train] Step 1430 | Det Loss: 2.4703
+  [train] Step 1440 | Det Loss: 3.2383
+  [train] Step 1450 | Det Loss: 3.2814
+  [train] Step 1460 | Det Loss: 1.5357
+  [train] Step 1470 | Det Loss: 2.9239
+  [train] Step 1480 | Det Loss: 3.1640
+  [train] Step 1490 | Det Loss: 2.6620
+  [train] Step 1500 | Det Loss: 3.0656
+  [train] Step 1510 | Det Loss: 2.1430
+Corrupt JPEG data: 1774 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: 1985 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 222 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+
+📊 Epoch 1 | Train: 3.4229 | Val: 4.4605 | LR: 4.00e-05
+   └─ Val P/R@2.0m: 0.7931/0.0064
+   💾 Best 저장! Val Recall: 0.0064 | Val Loss: 4.4605
+
+========== [Epoch 2/100] ==========
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1597 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 306 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 8669 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 317 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 5 extraneous bytes before marker 0xd9
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 76 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 1394 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 105 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 570 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 42 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 1350 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 4 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 3 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 554 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 159 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 253 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 103 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 322 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 298 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 20 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 266 extraneous bytes before marker 0xd9
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1091 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 5681 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 2 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 92 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 3529 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 7442 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 573 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 22 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 2636 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 9 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1163 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 302 extraneous bytes before marker 0xd9
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 924 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 68 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 363 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 1801 extraneous bytes before marker 0xd9
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: 16 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+  [train] Step 000 | Det Loss: 2.3419
+  [train] Step 010 | Det Loss: 2.6770
+  [train] Step 020 | Det Loss: 2.4125
+  [train] Step 030 | Det Loss: 2.3482
+  [train] Step 040 | Det Loss: 1.9447
+  [train] Step 050 | Det Loss: 2.2435
+  [train] Step 060 | Det Loss: 1.9094
+  [train] Step 070 | Det Loss: 2.0909
+  [train] Step 080 | Det Loss: 2.5410
+  [train] Step 090 | Det Loss: 2.2673
+  [train] Step 100 | Det Loss: 3.2946
+  [train] Step 110 | Det Loss: 2.4599
+  [train] Step 120 | Det Loss: 2.3634
+  [train] Step 130 | Det Loss: 2.1455
+  [train] Step 140 | Det Loss: 2.0593
+  [train] Step 150 | Det Loss: 2.6085
+  [train] Step 160 | Det Loss: 1.9028
+  [train] Step 170 | Det Loss: 3.0302
+  [train] Step 180 | Det Loss: 2.2632
+  [train] Step 190 | Det Loss: 2.9069
+  [train] Step 200 | Det Loss: 2.6377
+  [train] Step 210 | Det Loss: 2.2252
+  [train] Step 220 | Det Loss: 2.1056
+  [train] Step 230 | Det Loss: 1.8112
+  [train] Step 240 | Det Loss: 1.4090
+  [train] Step 250 | Det Loss: 2.1430
+  [train] Step 260 | Det Loss: 2.6342
+  [train] Step 270 | Det Loss: 2.1658
+  [train] Step 280 | Det Loss: 2.8486
+  [train] Step 290 | Det Loss: 2.4406
+  [train] Step 300 | Det Loss: 2.4308
+  [train] Step 310 | Det Loss: 1.8622
+  [train] Step 320 | Det Loss: 2.1913
+  [train] Step 330 | Det Loss: 2.2344
+  [train] Step 340 | Det Loss: 1.9454
+  [train] Step 350 | Det Loss: 2.0040
+  [train] Step 360 | Det Loss: 2.5514
+  [train] Step 370 | Det Loss: 2.6738
+  [train] Step 380 | Det Loss: 2.1038
+  [train] Step 390 | Det Loss: 1.6186
+  [train] Step 400 | Det Loss: 2.4629
+  [train] Step 410 | Det Loss: 2.8848
+  [train] Step 420 | Det Loss: 2.0996
+  [train] Step 430 | Det Loss: 2.9792
+  [train] Step 440 | Det Loss: 2.5940
+  [train] Step 450 | Det Loss: 2.4683
+  [train] Step 460 | Det Loss: 1.3374
+  [train] Step 470 | Det Loss: 1.4585
+  [train] Step 480 | Det Loss: 2.2915
+  [train] Step 490 | Det Loss: 2.8981
+  [train] Step 500 | Det Loss: 2.2936
+  [train] Step 510 | Det Loss: 2.3318
+  [train] Step 520 | Det Loss: 1.6810
+  [train] Step 530 | Det Loss: 2.7711
+  [train] Step 540 | Det Loss: 2.6914
+  [train] Step 550 | Det Loss: 2.6811
+  [train] Step 560 | Det Loss: 2.0851
+  [train] Step 570 | Det Loss: 1.9664
+  [train] Step 580 | Det Loss: 1.9582
+  [train] Step 590 | Det Loss: 2.7500
+  [train] Step 600 | Det Loss: 1.8341
+  [train] Step 610 | Det Loss: 2.1664
+  [train] Step 620 | Det Loss: 3.4064
+  [train] Step 630 | Det Loss: 2.1338
+  [train] Step 640 | Det Loss: 1.5001
+  [train] Step 650 | Det Loss: 1.8691
+  [train] Step 660 | Det Loss: 1.5294
+  [train] Step 670 | Det Loss: 3.0550
+  [train] Step 680 | Det Loss: 2.0310
+  [train] Step 690 | Det Loss: 2.3147
+  [train] Step 700 | Det Loss: 2.1251
+  [train] Step 710 | Det Loss: 1.4779
+  [train] Step 720 | Det Loss: 1.6413
+  [train] Step 730 | Det Loss: 2.7285
+  [train] Step 740 | Det Loss: 2.7185
+  [train] Step 750 | Det Loss: 1.9658
+  [train] Step 760 | Det Loss: 1.6778
+  [train] Step 770 | Det Loss: 1.5125
+  [train] Step 780 | Det Loss: 2.2744
+  [train] Step 790 | Det Loss: 2.9725
+  [train] Step 800 | Det Loss: 3.2644
+  [train] Step 810 | Det Loss: 2.5579
+  [train] Step 820 | Det Loss: 2.0227
+  [train] Step 830 | Det Loss: 1.5180
+  [train] Step 840 | Det Loss: 2.0076
+  [train] Step 850 | Det Loss: 2.5092
+  [train] Step 860 | Det Loss: 1.9835
+  [train] Step 870 | Det Loss: 2.3815
+  [train] Step 880 | Det Loss: 3.4620
+  [train] Step 890 | Det Loss: 2.3746
+  [train] Step 900 | Det Loss: 1.2501
+  [train] Step 910 | Det Loss: 1.2299
+  [train] Step 920 | Det Loss: 2.0871
+  [train] Step 930 | Det Loss: 2.0078
+  [train] Step 940 | Det Loss: 1.5178
+  [train] Step 950 | Det Loss: 1.6727
+  [train] Step 960 | Det Loss: 1.8994
+  [train] Step 970 | Det Loss: 1.6314
+  [train] Step 980 | Det Loss: 2.1256
+  [train] Step 990 | Det Loss: 1.5568
+  [train] Step 1000 | Det Loss: 1.5960
+  [train] Step 1010 | Det Loss: 1.9512
+  [train] Step 1020 | Det Loss: 1.4554
+  [train] Step 1030 | Det Loss: 2.4237
+  [train] Step 1040 | Det Loss: 1.7811
+  [train] Step 1050 | Det Loss: 1.9131
+  [train] Step 1060 | Det Loss: 1.2336
+  [train] Step 1070 | Det Loss: 2.1221
+  [train] Step 1080 | Det Loss: 1.9098
+  [train] Step 1090 | Det Loss: 2.4257
+  [train] Step 1100 | Det Loss: 2.9905
+  [train] Step 1110 | Det Loss: 1.8504
+  [train] Step 1120 | Det Loss: 2.0947
+  [train] Step 1130 | Det Loss: 1.6078
+  [train] Step 1140 | Det Loss: 2.6285
+  [train] Step 1150 | Det Loss: 1.7715
+  [train] Step 1160 | Det Loss: 2.1404
+  [train] Step 1170 | Det Loss: 1.7855
+  [train] Step 1180 | Det Loss: 2.0030
+  [train] Step 1190 | Det Loss: 1.6314
+  [train] Step 1200 | Det Loss: 2.1189
+  [train] Step 1210 | Det Loss: 1.6439
+  [train] Step 1220 | Det Loss: 2.5412
+  [train] Step 1230 | Det Loss: 3.0596
+  [train] Step 1240 | Det Loss: 2.0693
+  [train] Step 1250 | Det Loss: 2.3275
+  [train] Step 1260 | Det Loss: 1.6997
+  [train] Step 1270 | Det Loss: 2.9045
+  [train] Step 1280 | Det Loss: 2.2980
+  [train] Step 1290 | Det Loss: 1.5418
+  [train] Step 1300 | Det Loss: 1.5252
+  [train] Step 1310 | Det Loss: 1.2035
+  [train] Step 1320 | Det Loss: 1.9443
+  [train] Step 1330 | Det Loss: 2.1641
+  [train] Step 1340 | Det Loss: 2.1391
+  [train] Step 1350 | Det Loss: 1.6404
+  [train] Step 1360 | Det Loss: 1.7943
+  [train] Step 1370 | Det Loss: 2.0324
+  [train] Step 1380 | Det Loss: 2.4406
+  [train] Step 1390 | Det Loss: 0.7082
+  [train] Step 1400 | Det Loss: 1.9251
+  [train] Step 1410 | Det Loss: 1.5420
+  [train] Step 1420 | Det Loss: 2.2334
+  [train] Step 1430 | Det Loss: 1.9549
+  [train] Step 1440 | Det Loss: 1.6046
+  [train] Step 1450 | Det Loss: 1.7468
+  [train] Step 1460 | Det Loss: 1.9588
+  [train] Step 1470 | Det Loss: 1.8307
+  [train] Step 1480 | Det Loss: 1.9558
+  [train] Step 1490 | Det Loss: 1.9311
+  [train] Step 1500 | Det Loss: 1.8480
+  [train] Step 1510 | Det Loss: 1.6629
+Corrupt JPEG data: 1774 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: 1985 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 222 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+
+📊 Epoch 2 | Train: 2.1239 | Val: 5.1513 | LR: 4.00e-05
+   └─ Val P/R@2.0m: 0.7711/0.0178
+   💾 Best 저장! Val Recall: 0.0178 | Val Loss: 5.1513
+
+========== [Epoch 3/100] ==========
+Corrupt JPEG data: 3529 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 159 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 92 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 317 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 103 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 7442 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 4 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 306 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1163 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 3 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1394 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 105 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 302 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 1597 extraneous bytes before marker 0xd9
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 22 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 5 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 2 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 298 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 363 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 1801 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 5681 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1350 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 9 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 42 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 253 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 573 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 322 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 8669 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 76 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 554 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 266 extraneous bytes before marker 0xd9
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 924 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 2636 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 20 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 16 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 570 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1091 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 68 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+  [train] Step 000 | Det Loss: 2.0129
+  [train] Step 010 | Det Loss: 2.3781
+  [train] Step 020 | Det Loss: 1.0847
+  [train] Step 030 | Det Loss: 1.6962
+  [train] Step 040 | Det Loss: 1.8679
+  [train] Step 050 | Det Loss: 2.0048
+  [train] Step 060 | Det Loss: 1.9429
+  [train] Step 070 | Det Loss: 1.4886
+  [train] Step 080 | Det Loss: 0.4955
+  [train] Step 090 | Det Loss: 0.8474
+  [train] Step 100 | Det Loss: 2.1978
+  [train] Step 110 | Det Loss: 2.4285
+  [train] Step 120 | Det Loss: 1.6268
+  [train] Step 130 | Det Loss: 1.8552
+  [train] Step 140 | Det Loss: 1.4390
+  [train] Step 150 | Det Loss: 0.8784
+  [train] Step 160 | Det Loss: 1.2889
+  [train] Step 170 | Det Loss: 1.7907
+  [train] Step 180 | Det Loss: 1.3281
+  [train] Step 190 | Det Loss: 1.2734
+  [train] Step 200 | Det Loss: 1.9543
+  [train] Step 210 | Det Loss: 0.8636
+  [train] Step 220 | Det Loss: 1.2586
+  [train] Step 230 | Det Loss: 1.6708
+  [train] Step 240 | Det Loss: 1.0445
+  [train] Step 250 | Det Loss: 1.9177
+  [train] Step 260 | Det Loss: 1.2840
+  [train] Step 270 | Det Loss: 1.5711
+  [train] Step 280 | Det Loss: 1.6584
+  [train] Step 290 | Det Loss: 1.9120
+  [train] Step 300 | Det Loss: 1.7348
+  [train] Step 310 | Det Loss: 1.6071
+  [train] Step 320 | Det Loss: 1.9571
+  [train] Step 330 | Det Loss: 1.2301
+  [train] Step 340 | Det Loss: 1.5731
+  [train] Step 350 | Det Loss: 2.1317
+  [train] Step 360 | Det Loss: 1.3052
+  [train] Step 370 | Det Loss: 1.5001
+  [train] Step 380 | Det Loss: 1.2949
+  [train] Step 390 | Det Loss: 2.9750
+  [train] Step 400 | Det Loss: 2.0686
+  [train] Step 410 | Det Loss: 2.2200
+  [train] Step 420 | Det Loss: 2.2752
+  [train] Step 430 | Det Loss: 1.3885
+  [train] Step 440 | Det Loss: 1.0942
+  [train] Step 450 | Det Loss: 1.5719
+  [train] Step 460 | Det Loss: 1.2675
+  [train] Step 470 | Det Loss: 2.1128
+  [train] Step 480 | Det Loss: 1.4070
+  [train] Step 490 | Det Loss: 1.5169
+  [train] Step 500 | Det Loss: 1.7879
+  [train] Step 510 | Det Loss: 1.4763
+  [train] Step 520 | Det Loss: 1.0312
+  [train] Step 530 | Det Loss: 0.8541
+  [train] Step 540 | Det Loss: 1.6905
+  [train] Step 550 | Det Loss: 1.3199
+  [train] Step 560 | Det Loss: 1.4089
+  [train] Step 570 | Det Loss: 1.0807
+  [train] Step 580 | Det Loss: 1.2648
+  [train] Step 590 | Det Loss: 0.8267
+  [train] Step 600 | Det Loss: 1.2055
+  [train] Step 610 | Det Loss: 1.1779
+  [train] Step 620 | Det Loss: 2.0751
+  [train] Step 630 | Det Loss: 0.9876
+  [train] Step 640 | Det Loss: 2.2926
+  [train] Step 650 | Det Loss: 1.7750
+  [train] Step 660 | Det Loss: 1.8022
+  [train] Step 670 | Det Loss: 1.6088
+  [train] Step 680 | Det Loss: 1.0994
+  [train] Step 690 | Det Loss: 1.7917
+  [train] Step 700 | Det Loss: 1.7860
+  [train] Step 710 | Det Loss: 1.0194
+  [train] Step 720 | Det Loss: 1.7981
+  [train] Step 730 | Det Loss: 1.0724
+  [train] Step 740 | Det Loss: 1.7102
+  [train] Step 750 | Det Loss: 1.3610
+  [train] Step 760 | Det Loss: 1.5873
+  [train] Step 770 | Det Loss: 1.4723
+  [train] Step 780 | Det Loss: 1.5679
+  [train] Step 790 | Det Loss: 0.7574
+  [train] Step 800 | Det Loss: 1.0669
+  [train] Step 810 | Det Loss: 1.8557
+  [train] Step 820 | Det Loss: 0.9387
+  [train] Step 830 | Det Loss: 1.1427
+  [train] Step 840 | Det Loss: 0.8559
+  [train] Step 850 | Det Loss: 0.8853
+  [train] Step 860 | Det Loss: 0.9359
+  [train] Step 870 | Det Loss: 1.4714
+  [train] Step 880 | Det Loss: 0.8124
+  [train] Step 890 | Det Loss: 1.1614
+  [train] Step 900 | Det Loss: 1.0582
+  [train] Step 910 | Det Loss: 1.0432
+  [train] Step 920 | Det Loss: 1.3015
+  [train] Step 930 | Det Loss: 1.2138
+  [train] Step 940 | Det Loss: 1.2995
+  [train] Step 950 | Det Loss: 1.0134
+  [train] Step 960 | Det Loss: 1.8993
+  [train] Step 970 | Det Loss: 1.5213
+  [train] Step 980 | Det Loss: 2.2558
+  [train] Step 990 | Det Loss: 1.9061
+  [train] Step 1000 | Det Loss: 1.1957
+  [train] Step 1010 | Det Loss: 2.1625
+  [train] Step 1020 | Det Loss: 1.1657
+  [train] Step 1030 | Det Loss: 1.2145
+  [train] Step 1040 | Det Loss: 1.0856
+  [train] Step 1050 | Det Loss: 1.8891
+  [train] Step 1060 | Det Loss: 1.4563
+  [train] Step 1070 | Det Loss: 1.3060
+  [train] Step 1080 | Det Loss: 1.3676
+  [train] Step 1090 | Det Loss: 0.7140
+  [train] Step 1100 | Det Loss: 1.4594
+  [train] Step 1110 | Det Loss: 1.5210
+  [train] Step 1120 | Det Loss: 0.9671
+  [train] Step 1130 | Det Loss: 0.9174
+  [train] Step 1140 | Det Loss: 1.7594
+  [train] Step 1150 | Det Loss: 0.9957
+  [train] Step 1160 | Det Loss: 1.2136
+  [train] Step 1170 | Det Loss: 1.7678
+  [train] Step 1180 | Det Loss: 1.8673
+  [train] Step 1190 | Det Loss: 0.8742
+  [train] Step 1200 | Det Loss: 1.0905
+  [train] Step 1210 | Det Loss: 1.5384
+  [train] Step 1220 | Det Loss: 1.3924
+  [train] Step 1230 | Det Loss: 1.3593
+  [train] Step 1240 | Det Loss: 1.3735
+  [train] Step 1250 | Det Loss: 1.3889
+  [train] Step 1260 | Det Loss: 1.1550
+  [train] Step 1270 | Det Loss: 1.0873
+  [train] Step 1280 | Det Loss: 0.8439
+  [train] Step 1290 | Det Loss: 1.2810
+  [train] Step 1300 | Det Loss: 0.9741
+  [train] Step 1310 | Det Loss: 0.7629
+  [train] Step 1320 | Det Loss: 1.4122
+  [train] Step 1330 | Det Loss: 1.6382
+  [train] Step 1340 | Det Loss: 0.6230
+  [train] Step 1350 | Det Loss: 1.9499
+  [train] Step 1360 | Det Loss: 1.7745
+  [train] Step 1370 | Det Loss: 1.4777
+  [train] Step 1380 | Det Loss: 1.1399
+  [train] Step 1390 | Det Loss: 1.1365
+  [train] Step 1400 | Det Loss: 1.4298
+  [train] Step 1410 | Det Loss: 1.9971
+  [train] Step 1420 | Det Loss: 1.8403
+  [train] Step 1430 | Det Loss: 1.4185
+  [train] Step 1440 | Det Loss: 0.9155
+  [train] Step 1450 | Det Loss: 0.7671
+  [train] Step 1460 | Det Loss: 1.1037
+  [train] Step 1470 | Det Loss: 1.5377
+  [train] Step 1480 | Det Loss: 1.6089
+  [train] Step 1490 | Det Loss: 1.0002
+  [train] Step 1500 | Det Loss: 2.0907
+  [train] Step 1510 | Det Loss: 2.2330
+Corrupt JPEG data: 1774 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: 1985 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 222 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+
+📊 Epoch 3 | Train: 1.5016 | Val: 6.4328 | LR: 3.99e-05
+   └─ Val P/R@2.0m: 0.8483/0.0171
+   ⏳ Val recall 개선 없음 (1/20)
+
+========== [Epoch 4/100] ==========
+Corrupt JPEG data: 302 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 20 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 5681 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 68 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 159 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 9 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 105 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 16 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 3529 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 570 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 253 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 322 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 1597 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 306 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 554 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 42 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1163 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 924 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 22 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 2 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 2636 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 1394 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 266 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 3 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 103 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 4 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 92 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 573 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: 317 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 1801 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 76 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 5 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1350 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 7442 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 363 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1091 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 8669 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 298 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+  [train] Step 000 | Det Loss: 0.7450
+  [train] Step 010 | Det Loss: 1.0744
+  [train] Step 020 | Det Loss: 1.0431
+  [train] Step 030 | Det Loss: 1.3356
+  [train] Step 040 | Det Loss: 1.2504
+  [train] Step 050 | Det Loss: 1.0263
+  [train] Step 060 | Det Loss: 1.1909
+  [train] Step 070 | Det Loss: 1.5192
+  [train] Step 080 | Det Loss: 0.7743
+  [train] Step 090 | Det Loss: 1.3361
+  [train] Step 100 | Det Loss: 1.6110
+  [train] Step 110 | Det Loss: 1.2653
+  [train] Step 120 | Det Loss: 1.0581
+  [train] Step 130 | Det Loss: 1.1584
+  [train] Step 140 | Det Loss: 0.7772
+  [train] Step 150 | Det Loss: 1.8508
+  [train] Step 160 | Det Loss: 1.4253
+  [train] Step 170 | Det Loss: 1.4985
+  [train] Step 180 | Det Loss: 1.2364
+  [train] Step 190 | Det Loss: 1.1134
+  [train] Step 200 | Det Loss: 1.7943
+  [train] Step 210 | Det Loss: 1.6590
+  [train] Step 220 | Det Loss: 1.6094
+  [train] Step 230 | Det Loss: 2.0781
+  [train] Step 240 | Det Loss: 1.2100
+  [train] Step 250 | Det Loss: 1.3272
+  [train] Step 260 | Det Loss: 1.2219
+  [train] Step 270 | Det Loss: 1.8511
+  [train] Step 280 | Det Loss: 2.4491
+  [train] Step 290 | Det Loss: 1.4391
+  [train] Step 300 | Det Loss: 1.7942
+  [train] Step 310 | Det Loss: 1.9097
+  [train] Step 320 | Det Loss: 1.0766
+  [train] Step 330 | Det Loss: 0.9616
+  [train] Step 340 | Det Loss: 1.0905
+  [train] Step 350 | Det Loss: 1.2024
+  [train] Step 360 | Det Loss: 0.6875
+  [train] Step 370 | Det Loss: 1.4335
+  [train] Step 380 | Det Loss: 1.0350
+  [train] Step 390 | Det Loss: 0.6711
+  [train] Step 400 | Det Loss: 1.1282
+  [train] Step 410 | Det Loss: 1.6207
+  [train] Step 420 | Det Loss: 1.0078
+  [train] Step 430 | Det Loss: 0.7324
+  [train] Step 440 | Det Loss: 0.8134
+  [train] Step 450 | Det Loss: 1.2928
+  [train] Step 460 | Det Loss: 0.6613
+  [train] Step 470 | Det Loss: 1.5354
+  [train] Step 480 | Det Loss: 1.3795
+  [train] Step 490 | Det Loss: 1.0495
+  [train] Step 500 | Det Loss: 0.9304
+  [train] Step 510 | Det Loss: 1.9176
+  [train] Step 520 | Det Loss: 1.4460
+  [train] Step 530 | Det Loss: 1.2347
+  [train] Step 540 | Det Loss: 1.7830
+  [train] Step 550 | Det Loss: 1.0272
+  [train] Step 560 | Det Loss: 1.4400
+  [train] Step 570 | Det Loss: 1.4145
+  [train] Step 580 | Det Loss: 1.3319
+  [train] Step 590 | Det Loss: 0.7671
+  [train] Step 600 | Det Loss: 1.5500
+  [train] Step 610 | Det Loss: 1.0733
+  [train] Step 620 | Det Loss: 0.6581
+  [train] Step 630 | Det Loss: 0.6431
+  [train] Step 640 | Det Loss: 1.3169
+  [train] Step 650 | Det Loss: 1.8103
+  [train] Step 660 | Det Loss: 1.3198
+  [train] Step 670 | Det Loss: 1.1971
+  [train] Step 680 | Det Loss: 1.3707
+  [train] Step 690 | Det Loss: 0.7408
+  [train] Step 700 | Det Loss: 0.7227
+  [train] Step 710 | Det Loss: 1.5551
+  [train] Step 720 | Det Loss: 1.3441
+  [train] Step 730 | Det Loss: 1.2472
+  [train] Step 740 | Det Loss: 1.2824
+  [train] Step 750 | Det Loss: 0.6803
+  [train] Step 760 | Det Loss: 1.0841
+  [train] Step 770 | Det Loss: 0.8456
+  [train] Step 780 | Det Loss: 1.1669
+  [train] Step 790 | Det Loss: 1.3901
+  [train] Step 800 | Det Loss: 1.2037
+  [train] Step 810 | Det Loss: 1.5921
+  [train] Step 820 | Det Loss: 1.1164
+  [train] Step 830 | Det Loss: 1.4715
+  [train] Step 840 | Det Loss: 1.8125
+  [train] Step 850 | Det Loss: 0.9225
+  [train] Step 860 | Det Loss: 1.1009
+  [train] Step 870 | Det Loss: 1.1993
+  [train] Step 880 | Det Loss: 1.3370
+  [train] Step 890 | Det Loss: 1.0577
+  [train] Step 900 | Det Loss: 0.9724
+  [train] Step 910 | Det Loss: 0.8477
+  [train] Step 920 | Det Loss: 0.7133
+  [train] Step 930 | Det Loss: 1.1535
+  [train] Step 940 | Det Loss: 0.8382
+  [train] Step 950 | Det Loss: 1.4560
+  [train] Step 960 | Det Loss: 1.1917
+  [train] Step 970 | Det Loss: 0.9740
+  [train] Step 980 | Det Loss: 1.1813
+  [train] Step 990 | Det Loss: 0.7120
+  [train] Step 1000 | Det Loss: 2.2000
+  [train] Step 1010 | Det Loss: 1.4632
+  [train] Step 1020 | Det Loss: 1.4935
+  [train] Step 1030 | Det Loss: 1.0740
+  [train] Step 1040 | Det Loss: 1.2465
+  [train] Step 1050 | Det Loss: 1.4507
+  [train] Step 1060 | Det Loss: 0.8894
+  [train] Step 1070 | Det Loss: 0.6375
+  [train] Step 1080 | Det Loss: 1.2485
+  [train] Step 1090 | Det Loss: 1.2192
+  [train] Step 1100 | Det Loss: 1.0301
+  [train] Step 1110 | Det Loss: 1.1579
+  [train] Step 1120 | Det Loss: 2.4717
+  [train] Step 1130 | Det Loss: 1.2081
+  [train] Step 1140 | Det Loss: 1.2178
+  [train] Step 1150 | Det Loss: 0.9889
+  [train] Step 1160 | Det Loss: 0.5137
+  [train] Step 1170 | Det Loss: 0.5479
+  [train] Step 1180 | Det Loss: 1.1075
+  [train] Step 1190 | Det Loss: 0.9584
+  [train] Step 1200 | Det Loss: 1.2979
+  [train] Step 1210 | Det Loss: 1.8109
+  [train] Step 1220 | Det Loss: 0.8310
+  [train] Step 1230 | Det Loss: 1.1425
+  [train] Step 1240 | Det Loss: 1.0785
+  [train] Step 1250 | Det Loss: 1.3608
+  [train] Step 1260 | Det Loss: 0.5213
+  [train] Step 1270 | Det Loss: 0.9154
+  [train] Step 1280 | Det Loss: 1.0988
+  [train] Step 1290 | Det Loss: 1.5709
+  [train] Step 1300 | Det Loss: 1.6330
+  [train] Step 1310 | Det Loss: 1.7732
+  [train] Step 1320 | Det Loss: 2.1354
+  [train] Step 1330 | Det Loss: 1.8538
+  [train] Step 1340 | Det Loss: 0.8119
+  [train] Step 1350 | Det Loss: 2.1237
+  [train] Step 1360 | Det Loss: 0.9961
+  [train] Step 1370 | Det Loss: 1.9171
+  [train] Step 1380 | Det Loss: 0.9722
+  [train] Step 1390 | Det Loss: 1.0541
+  [train] Step 1400 | Det Loss: 1.0209
+  [train] Step 1410 | Det Loss: 1.0416
+  [train] Step 1420 | Det Loss: 0.9557
+  [train] Step 1430 | Det Loss: 2.0652
+  [train] Step 1440 | Det Loss: 0.9793
+  [train] Step 1450 | Det Loss: 0.7075
+  [train] Step 1460 | Det Loss: 0.5461
+  [train] Step 1470 | Det Loss: 0.8089
+  [train] Step 1480 | Det Loss: 0.9822
+  [train] Step 1490 | Det Loss: 1.0053
+  [train] Step 1500 | Det Loss: 1.4840
+  [train] Step 1510 | Det Loss: 1.5673
+Corrupt JPEG data: 1774 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: 1985 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 222 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+
+📊 Epoch 4 | Train: 1.2923 | Val: 6.2020 | LR: 3.98e-05
+   └─ Val P/R@2.0m: 0.2162/0.0022
+   ⏳ Val recall 개선 없음 (2/20)
+
+========== [Epoch 5/100] ==========
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 103 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 1597 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 317 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 68 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 76 extraneous bytes before marker 0xd9
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: 1801 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 2636 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 570 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 302 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 322 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 306 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 20 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 4 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1394 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 16 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 363 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 924 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 554 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 298 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 8669 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 5 extraneous bytes before marker 0xd9
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: 92 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 22 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 573 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 3529 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 5681 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 159 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 266 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 2 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 3 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 9 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1091 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 7442 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: 105 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1350 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 42 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 253 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1163 extraneous bytes before marker 0xd9
+  [train] Step 000 | Det Loss: 1.2590
+  [train] Step 010 | Det Loss: 0.8465
+  [train] Step 020 | Det Loss: 0.9371
+  [train] Step 030 | Det Loss: 0.5082
+  [train] Step 040 | Det Loss: 1.5352
+  [train] Step 050 | Det Loss: 1.5050
+  [train] Step 060 | Det Loss: 0.5491
+  [train] Step 070 | Det Loss: 0.5790
+  [train] Step 080 | Det Loss: 1.1854
+  [train] Step 090 | Det Loss: 1.6801
+  [train] Step 100 | Det Loss: 0.8360
+  [train] Step 110 | Det Loss: 1.2705
+  [train] Step 120 | Det Loss: 0.5284
+  [train] Step 130 | Det Loss: 2.3022
+  [train] Step 140 | Det Loss: 0.6283
+  [train] Step 150 | Det Loss: 1.3475
+  [train] Step 160 | Det Loss: 1.8473
+  [train] Step 170 | Det Loss: 1.5146
+  [train] Step 180 | Det Loss: 1.4081
+  [train] Step 190 | Det Loss: 1.6035
+  [train] Step 200 | Det Loss: 0.9878
+  [train] Step 210 | Det Loss: 1.9102
+  [train] Step 220 | Det Loss: 0.7823
+  [train] Step 230 | Det Loss: 1.0197
+  [train] Step 240 | Det Loss: 1.1483
+  [train] Step 250 | Det Loss: 2.3271
+  [train] Step 260 | Det Loss: 0.2821
+  [train] Step 270 | Det Loss: 0.7467
+  [train] Step 280 | Det Loss: 1.3276
+  [train] Step 290 | Det Loss: 1.0915
+  [train] Step 300 | Det Loss: 1.2691
+  [train] Step 310 | Det Loss: 1.6277
+  [train] Step 320 | Det Loss: 1.5754
+  [train] Step 330 | Det Loss: 0.9749
+  [train] Step 340 | Det Loss: 1.0438
+  [train] Step 350 | Det Loss: 1.2236
+  [train] Step 360 | Det Loss: 1.2576
+  [train] Step 370 | Det Loss: 2.1911
+  [train] Step 380 | Det Loss: 0.5900
+  [train] Step 390 | Det Loss: 0.6660
+  [train] Step 400 | Det Loss: 1.4902
+  [train] Step 410 | Det Loss: 1.2968
+  [train] Step 420 | Det Loss: 0.6840
+  [train] Step 430 | Det Loss: 1.1089
+  [train] Step 440 | Det Loss: 1.1495
+  [train] Step 450 | Det Loss: 1.4815
+  [train] Step 460 | Det Loss: 1.2205
+  [train] Step 470 | Det Loss: 1.2775
+  [train] Step 480 | Det Loss: 0.9153
+  [train] Step 490 | Det Loss: 0.7790
+  [train] Step 500 | Det Loss: 1.1613
+  [train] Step 510 | Det Loss: 1.1508
+  [train] Step 520 | Det Loss: 0.5438
+  [train] Step 530 | Det Loss: 0.4019
+  [train] Step 540 | Det Loss: 1.4396
+  [train] Step 550 | Det Loss: 0.8438
+  [train] Step 560 | Det Loss: 0.4291
+  [train] Step 570 | Det Loss: 0.4906
+  [train] Step 580 | Det Loss: 1.4515
+  [train] Step 590 | Det Loss: 1.5780
+  [train] Step 600 | Det Loss: 1.3127
+  [train] Step 610 | Det Loss: 0.6449
+  [train] Step 620 | Det Loss: 1.0718
+  [train] Step 630 | Det Loss: 1.5898
+  [train] Step 640 | Det Loss: 0.9781
+  [train] Step 650 | Det Loss: 1.1462
+  [train] Step 660 | Det Loss: 1.0380
+  [train] Step 670 | Det Loss: 1.0894
+  [train] Step 680 | Det Loss: 0.6893
+  [train] Step 690 | Det Loss: 1.1508
+  [train] Step 700 | Det Loss: 0.9667
+  [train] Step 710 | Det Loss: 1.0652
+  [train] Step 720 | Det Loss: 1.2673
+  [train] Step 730 | Det Loss: 1.4944
+  [train] Step 740 | Det Loss: 1.1405
+  [train] Step 750 | Det Loss: 0.8648
+  [train] Step 760 | Det Loss: 0.7107
+  [train] Step 770 | Det Loss: 1.2498
+  [train] Step 780 | Det Loss: 0.8052
+  [train] Step 790 | Det Loss: 0.6658
+  [train] Step 800 | Det Loss: 0.5198
+  [train] Step 810 | Det Loss: 1.2884
+  [train] Step 820 | Det Loss: 0.6602
+  [train] Step 830 | Det Loss: 0.8924
+  [train] Step 840 | Det Loss: 2.0450
+  [train] Step 850 | Det Loss: 1.4485
+  [train] Step 860 | Det Loss: 1.7670
+  [train] Step 870 | Det Loss: 1.0325
+  [train] Step 880 | Det Loss: 1.1063
+  [train] Step 890 | Det Loss: 0.8002
+  [train] Step 900 | Det Loss: 1.6543
+  [train] Step 910 | Det Loss: 0.8418
+  [train] Step 920 | Det Loss: 1.5224
+  [train] Step 930 | Det Loss: 1.3178
+  [train] Step 940 | Det Loss: 2.7792
+  [train] Step 950 | Det Loss: 0.6578
+  [train] Step 960 | Det Loss: 1.7541
+  [train] Step 970 | Det Loss: 1.4659
+  [train] Step 980 | Det Loss: 0.9519
+  [train] Step 990 | Det Loss: 2.0064
+  [train] Step 1000 | Det Loss: 1.2062
+  [train] Step 1010 | Det Loss: 2.8246
+  [train] Step 1020 | Det Loss: 0.5436
+  [train] Step 1030 | Det Loss: 1.7024
+  [train] Step 1040 | Det Loss: 1.0177
+  [train] Step 1050 | Det Loss: 1.7213
+  [train] Step 1060 | Det Loss: 2.3047
+  [train] Step 1070 | Det Loss: 0.9720
+  [train] Step 1080 | Det Loss: 0.1862
+  [train] Step 1090 | Det Loss: 1.6422
+  [train] Step 1100 | Det Loss: 1.2964
+  [train] Step 1110 | Det Loss: 1.1116
+  [train] Step 1120 | Det Loss: 1.0575
+  [train] Step 1130 | Det Loss: 2.1124
+  [train] Step 1140 | Det Loss: 1.6294
+  [train] Step 1150 | Det Loss: 1.5090
+  [train] Step 1160 | Det Loss: 1.5241
+  [train] Step 1170 | Det Loss: 1.9243
+  [train] Step 1180 | Det Loss: 1.5143
+  [train] Step 1190 | Det Loss: 1.3631
+  [train] Step 1200 | Det Loss: 0.5328
+  [train] Step 1210 | Det Loss: 1.0875
+  [train] Step 1220 | Det Loss: 1.0088
+  [train] Step 1230 | Det Loss: 1.6872
+  [train] Step 1240 | Det Loss: 0.8191
+  [train] Step 1250 | Det Loss: 1.0271
+  [train] Step 1260 | Det Loss: 1.6266
+  [train] Step 1270 | Det Loss: 2.1694
+  [train] Step 1280 | Det Loss: 0.8123
+  [train] Step 1290 | Det Loss: 1.2102
+  [train] Step 1300 | Det Loss: 1.1924
+  [train] Step 1310 | Det Loss: 1.8010
+  [train] Step 1320 | Det Loss: 1.4771
+  [train] Step 1330 | Det Loss: 1.3413
+  [train] Step 1340 | Det Loss: 0.6317
+  [train] Step 1350 | Det Loss: 1.2834
+  [train] Step 1360 | Det Loss: 0.6928
+  [train] Step 1370 | Det Loss: 1.9815
+  [train] Step 1380 | Det Loss: 2.0835
+  [train] Step 1390 | Det Loss: 1.7023
+  [train] Step 1400 | Det Loss: 1.9094
+  [train] Step 1410 | Det Loss: 0.7305
+  [train] Step 1420 | Det Loss: 1.5283
+  [train] Step 1430 | Det Loss: 2.1829
+  [train] Step 1440 | Det Loss: 2.1595
+  [train] Step 1450 | Det Loss: 1.1770
+  [train] Step 1460 | Det Loss: 2.0781
+  [train] Step 1470 | Det Loss: 1.6934
+  [train] Step 1480 | Det Loss: 2.3398
+  [train] Step 1490 | Det Loss: 1.0357
+  [train] Step 1500 | Det Loss: 1.5315
+  [train] Step 1510 | Det Loss: 0.8174
+Corrupt JPEG data: 1774 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: 1985 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 222 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+
+📊 Epoch 5 | Train: 1.2440 | Val: 6.2024 | LR: 3.98e-05
+   └─ Val P/R@2.0m: 0.2500/0.0001
+   ⏳ Val recall 개선 없음 (3/20)
+
+========== [Epoch 6/100] ==========
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1350 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 76 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 2 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 68 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 924 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: 7442 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 105 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 1394 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 5681 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1801 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 3529 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 1091 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 5 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1597 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 8669 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: 317 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 1163 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 103 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 363 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 20 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 92 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 9 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 253 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 298 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 3 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 570 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 302 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 159 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 22 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 554 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 322 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 4 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 2636 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 573 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 266 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 306 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 42 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 16 extraneous bytes before marker 0xd9
+  [train] Step 000 | Det Loss: 1.2063
+  [train] Step 010 | Det Loss: 1.2817
+  [train] Step 020 | Det Loss: 1.0316
+  [train] Step 030 | Det Loss: 2.0340
+  [train] Step 040 | Det Loss: 0.8356
+  [train] Step 050 | Det Loss: 1.4019
+  [train] Step 060 | Det Loss: 1.6083
+  [train] Step 070 | Det Loss: 1.6423
+  [train] Step 080 | Det Loss: 2.6615
+  [train] Step 090 | Det Loss: 1.0706
+  [train] Step 100 | Det Loss: 1.6242
+  [train] Step 110 | Det Loss: 1.8411
+  [train] Step 120 | Det Loss: 1.3057
+  [train] Step 130 | Det Loss: 1.7325
+  [train] Step 140 | Det Loss: 2.0387
+  [train] Step 150 | Det Loss: 1.7737
+  [train] Step 160 | Det Loss: 1.6295
+  [train] Step 170 | Det Loss: 0.6534
+  [train] Step 180 | Det Loss: 2.1916
+  [train] Step 190 | Det Loss: 2.1990
+  [train] Step 200 | Det Loss: 2.7470
+  [train] Step 210 | Det Loss: 2.5154
+  [train] Step 220 | Det Loss: 1.8812
+  [train] Step 230 | Det Loss: 1.1328
+  [train] Step 240 | Det Loss: 1.1283
+  [train] Step 250 | Det Loss: 1.4113
+  [train] Step 260 | Det Loss: 1.0810
+  [train] Step 270 | Det Loss: 1.8836
+  [train] Step 280 | Det Loss: 1.1118
+  [train] Step 290 | Det Loss: 1.6939
+  [train] Step 300 | Det Loss: 1.6089
+  [train] Step 310 | Det Loss: 1.7659
+  [train] Step 320 | Det Loss: 1.3193
+  [train] Step 330 | Det Loss: 1.4054
+  [train] Step 340 | Det Loss: 0.9163
+  [train] Step 350 | Det Loss: 1.2732
+  [train] Step 360 | Det Loss: 1.3671
+  [train] Step 370 | Det Loss: 1.1762
+  [train] Step 380 | Det Loss: 1.2153
+  [train] Step 390 | Det Loss: 1.2329
+  [train] Step 400 | Det Loss: 1.3941
+  [train] Step 410 | Det Loss: 1.5721
+  [train] Step 420 | Det Loss: 1.6413
+  [train] Step 430 | Det Loss: 1.5332
+  [train] Step 440 | Det Loss: 1.6980
+  [train] Step 450 | Det Loss: 1.0330
+  [train] Step 460 | Det Loss: 2.1259
+  [train] Step 470 | Det Loss: 1.3149
+  [train] Step 480 | Det Loss: 0.9257
+  [train] Step 490 | Det Loss: 1.7415
+  [train] Step 500 | Det Loss: 2.6021
+  [train] Step 510 | Det Loss: 2.9315
+  [train] Step 520 | Det Loss: 1.5455
+  [train] Step 530 | Det Loss: 1.5303
+  [train] Step 540 | Det Loss: 0.8982
+  [train] Step 550 | Det Loss: 0.6480
+  [train] Step 560 | Det Loss: 2.9877
+  [train] Step 570 | Det Loss: 1.5984
+  [train] Step 580 | Det Loss: 1.4131
+  [train] Step 590 | Det Loss: 1.0891
+  [train] Step 600 | Det Loss: 0.6222
+  [train] Step 610 | Det Loss: 1.5609
+  [train] Step 620 | Det Loss: 2.2115
+  [train] Step 630 | Det Loss: 1.9400
+  [train] Step 640 | Det Loss: 1.2290
+  [train] Step 650 | Det Loss: 1.7550
+  [train] Step 660 | Det Loss: 1.2441
+  [train] Step 670 | Det Loss: 1.3889
+  [train] Step 680 | Det Loss: 1.2218
+  [train] Step 690 | Det Loss: 1.0393
+  [train] Step 700 | Det Loss: 1.9703
+  [train] Step 710 | Det Loss: 1.2410
+  [train] Step 720 | Det Loss: 1.3505
+  [train] Step 730 | Det Loss: 1.4219
+  [train] Step 740 | Det Loss: 2.5656
+  [train] Step 750 | Det Loss: 1.7724
+  [train] Step 760 | Det Loss: 1.2455
+  [train] Step 770 | Det Loss: 1.4303
+  [train] Step 780 | Det Loss: 1.5917
+  [train] Step 790 | Det Loss: 2.5063
+  [train] Step 800 | Det Loss: 1.6997
+  [train] Step 810 | Det Loss: 1.1377
+  [train] Step 820 | Det Loss: 1.5989
+  [train] Step 830 | Det Loss: 1.4827
+  [train] Step 840 | Det Loss: 1.4140
+  [train] Step 850 | Det Loss: 0.7947
+  [train] Step 860 | Det Loss: 1.6295
+  [train] Step 870 | Det Loss: 1.0093
+  [train] Step 880 | Det Loss: 1.6140
+  [train] Step 890 | Det Loss: 1.4165
+  [train] Step 900 | Det Loss: 1.1383
+  [train] Step 910 | Det Loss: 1.7595
+  [train] Step 920 | Det Loss: 1.1996
+  [train] Step 930 | Det Loss: 1.8609
+  [train] Step 940 | Det Loss: 1.6556
+  [train] Step 950 | Det Loss: 1.0484
+  [train] Step 960 | Det Loss: 1.2014
+  [train] Step 970 | Det Loss: 0.7894
+  [train] Step 980 | Det Loss: 1.3348
+  [train] Step 990 | Det Loss: 1.4143
+  [train] Step 1000 | Det Loss: 1.2182
+  [train] Step 1010 | Det Loss: 1.4214
+  [train] Step 1020 | Det Loss: 1.9189
+  [train] Step 1030 | Det Loss: 2.1011
+  [train] Step 1040 | Det Loss: 1.0076
+  [train] Step 1050 | Det Loss: 1.9851
+  [train] Step 1060 | Det Loss: 0.7053
+  [train] Step 1070 | Det Loss: 2.3461
+  [train] Step 1080 | Det Loss: 1.6685
+  [train] Step 1090 | Det Loss: 1.6429
+  [train] Step 1100 | Det Loss: 1.4751
+  [train] Step 1110 | Det Loss: 1.4910
+  [train] Step 1120 | Det Loss: 1.2938
+  [train] Step 1130 | Det Loss: 1.0720
+  [train] Step 1140 | Det Loss: 2.9105
+  [train] Step 1150 | Det Loss: 2.2789
+  [train] Step 1160 | Det Loss: 1.6654
+  [train] Step 1170 | Det Loss: 1.5465
+  [train] Step 1180 | Det Loss: 1.4078
+  [train] Step 1190 | Det Loss: 1.5042
+  [train] Step 1200 | Det Loss: 0.8314
+  [train] Step 1210 | Det Loss: 1.6255
+  [train] Step 1220 | Det Loss: 2.1583
+  [train] Step 1230 | Det Loss: 2.9948
+  [train] Step 1240 | Det Loss: 1.8371
+  [train] Step 1250 | Det Loss: 1.8161
+  [train] Step 1260 | Det Loss: 1.1234
+  [train] Step 1270 | Det Loss: 1.2497
+  [train] Step 1280 | Det Loss: 1.3727
+  [train] Step 1290 | Det Loss: 1.8461
+  [train] Step 1300 | Det Loss: 0.8688
+  [train] Step 1310 | Det Loss: 1.8161
+  [train] Step 1320 | Det Loss: 1.7149
+  [train] Step 1330 | Det Loss: 0.9424
+  [train] Step 1340 | Det Loss: 1.3922
+  [train] Step 1350 | Det Loss: 2.0649
+  [train] Step 1360 | Det Loss: 1.9737
+  [train] Step 1370 | Det Loss: 1.6270
+  [train] Step 1380 | Det Loss: 2.1127
+  [train] Step 1390 | Det Loss: 1.0545
+  [train] Step 1400 | Det Loss: 1.2447
+  [train] Step 1410 | Det Loss: 1.3575
+  [train] Step 1420 | Det Loss: 2.5368
+  [train] Step 1430 | Det Loss: 1.3989
+  [train] Step 1440 | Det Loss: 1.7231
+  [train] Step 1450 | Det Loss: 1.2057
+  [train] Step 1460 | Det Loss: 1.5035
+  [train] Step 1470 | Det Loss: 1.6447
+  [train] Step 1480 | Det Loss: 0.9486
+  [train] Step 1490 | Det Loss: 1.1780
+  [train] Step 1500 | Det Loss: 1.7897
+  [train] Step 1510 | Det Loss: 1.8139
+Corrupt JPEG data: 1774 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: 1985 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 222 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+
+📊 Epoch 6 | Train: 1.5365 | Val: 6.8066 | LR: 3.97e-05
+   └─ Val P/R@2.0m: 0.0000/0.0000
+   ⏳ Val recall 개선 없음 (4/20)
+
+========== [Epoch 7/100] ==========
+Corrupt JPEG data: 1394 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 322 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 5681 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 5 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 1597 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 1091 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 298 extraneous bytes before marker 0xd9
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 159 extraneous bytes before marker 0xd9
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: 554 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 573 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 2636 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 253 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 4 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 20 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 103 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 3529 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 105 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 76 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 68 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 8669 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 22 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 363 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 317 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 9 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 3 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 7442 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 306 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 16 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 266 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 570 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 302 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 1163 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 92 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 1801 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 2 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 42 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 1350 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 924 extraneous bytes before marker 0xd9
+  [train] Step 000 | Det Loss: 1.9932
+  [train] Step 010 | Det Loss: 1.3858
+  [train] Step 020 | Det Loss: 0.9930
+  [train] Step 030 | Det Loss: 1.5288
+  [train] Step 040 | Det Loss: 1.2882
+  [train] Step 050 | Det Loss: 1.3883
+  [train] Step 060 | Det Loss: 1.5632
+  [train] Step 070 | Det Loss: 1.7318
+  [train] Step 080 | Det Loss: 2.0870
+  [train] Step 090 | Det Loss: 2.1638
+  [train] Step 100 | Det Loss: 1.3973
+  [train] Step 110 | Det Loss: 1.0552
+  [train] Step 120 | Det Loss: 1.1424
+  [train] Step 130 | Det Loss: 1.3199
+  [train] Step 140 | Det Loss: 1.6986
+  [train] Step 150 | Det Loss: 1.8101
+  [train] Step 160 | Det Loss: 2.0100
+  [train] Step 170 | Det Loss: 1.2493
+  [train] Step 180 | Det Loss: 0.6492
+  [train] Step 190 | Det Loss: 1.5850
+  [train] Step 200 | Det Loss: 1.6151
+  [train] Step 210 | Det Loss: 0.7170
+  [train] Step 220 | Det Loss: 1.6996
+  [train] Step 230 | Det Loss: 1.7800
+  [train] Step 240 | Det Loss: 1.4112
+  [train] Step 250 | Det Loss: 1.0347
+  [train] Step 260 | Det Loss: 1.7407
+  [train] Step 270 | Det Loss: 1.4050
+  [train] Step 280 | Det Loss: 2.0690
+  [train] Step 290 | Det Loss: 2.2025
+  [train] Step 300 | Det Loss: 1.2536
+  [train] Step 310 | Det Loss: 1.4270
+  [train] Step 320 | Det Loss: 2.1322
+  [train] Step 330 | Det Loss: 1.6699
+  [train] Step 340 | Det Loss: 1.8002
+  [train] Step 350 | Det Loss: 1.2622
+  [train] Step 360 | Det Loss: 1.0814
+  [train] Step 370 | Det Loss: 1.4332
+  [train] Step 380 | Det Loss: 1.5725
+  [train] Step 390 | Det Loss: 1.6491
+  [train] Step 400 | Det Loss: 1.5059
+  [train] Step 410 | Det Loss: 1.9749
+  [train] Step 420 | Det Loss: 1.0651
+  [train] Step 430 | Det Loss: 1.3520
+  [train] Step 440 | Det Loss: 1.1561
+  [train] Step 450 | Det Loss: 2.1434
+  [train] Step 460 | Det Loss: 1.3282
+  [train] Step 470 | Det Loss: 0.9792
+  [train] Step 480 | Det Loss: 0.8945
+  [train] Step 490 | Det Loss: 2.4072
+  [train] Step 500 | Det Loss: 1.6808
+  [train] Step 510 | Det Loss: 1.6067
+  [train] Step 520 | Det Loss: 1.4766
+  [train] Step 530 | Det Loss: 1.4366
+  [train] Step 540 | Det Loss: 1.7537
+  [train] Step 550 | Det Loss: 2.8631
+  [train] Step 560 | Det Loss: 2.0946
+  [train] Step 570 | Det Loss: 2.0804
+  [train] Step 580 | Det Loss: 1.0406
+  [train] Step 590 | Det Loss: 1.4046
+  [train] Step 600 | Det Loss: 0.5359
+  [train] Step 610 | Det Loss: 1.6893
+  [train] Step 620 | Det Loss: 1.2130
+  [train] Step 630 | Det Loss: 1.3032
+  [train] Step 640 | Det Loss: 1.8568
+  [train] Step 650 | Det Loss: 1.8502
+  [train] Step 660 | Det Loss: 2.1982
+  [train] Step 670 | Det Loss: 1.3084
+  [train] Step 680 | Det Loss: 2.9844
+  [train] Step 690 | Det Loss: 1.7125
+  [train] Step 700 | Det Loss: 1.4035
+  [train] Step 710 | Det Loss: 1.0103
+  [train] Step 720 | Det Loss: 1.2591
+  [train] Step 730 | Det Loss: 0.8360
+  [train] Step 740 | Det Loss: 1.7892
+  [train] Step 750 | Det Loss: 2.0003
+  [train] Step 760 | Det Loss: 1.1631
+  [train] Step 770 | Det Loss: 1.4572
+  [train] Step 780 | Det Loss: 2.1248
+  [train] Step 790 | Det Loss: 1.6557
+  [train] Step 800 | Det Loss: 1.0910
+  [train] Step 810 | Det Loss: 1.8280
+  [train] Step 820 | Det Loss: 1.5198
+  [train] Step 830 | Det Loss: 0.9805
+  [train] Step 840 | Det Loss: 1.0044
+  [train] Step 850 | Det Loss: 0.9157
+  [train] Step 860 | Det Loss: 2.5059
+  [train] Step 870 | Det Loss: 1.8101
+  [train] Step 880 | Det Loss: 1.0902
+  [train] Step 890 | Det Loss: 1.4490
+  [train] Step 900 | Det Loss: 0.6576
+  [train] Step 910 | Det Loss: 1.2488
+  [train] Step 920 | Det Loss: 2.2468
+  [train] Step 930 | Det Loss: 2.1652
+  [train] Step 940 | Det Loss: 2.1798
+  [train] Step 950 | Det Loss: 1.1221
+  [train] Step 960 | Det Loss: 1.4862
+  [train] Step 970 | Det Loss: 0.6260
+  [train] Step 980 | Det Loss: 1.7708
+  [train] Step 990 | Det Loss: 1.6975
+  [train] Step 1000 | Det Loss: 1.7241
+  [train] Step 1010 | Det Loss: 1.2855
+  [train] Step 1020 | Det Loss: 1.9335
+  [train] Step 1030 | Det Loss: 2.8968
+  [train] Step 1040 | Det Loss: 1.8302
+  [train] Step 1050 | Det Loss: 2.0569
+  [train] Step 1060 | Det Loss: 1.7312
+  [train] Step 1070 | Det Loss: 1.3943
+  [train] Step 1080 | Det Loss: 1.5256
+  [train] Step 1090 | Det Loss: 0.9903
+  [train] Step 1100 | Det Loss: 2.2567
+  [train] Step 1110 | Det Loss: 1.5094
+  [train] Step 1120 | Det Loss: 1.4158
+  [train] Step 1130 | Det Loss: 2.1431
+  [train] Step 1140 | Det Loss: 1.9871
+  [train] Step 1150 | Det Loss: 1.0688
+  [train] Step 1160 | Det Loss: 1.8454
+  [train] Step 1170 | Det Loss: 2.2804
+  [train] Step 1180 | Det Loss: 1.4036
+  [train] Step 1190 | Det Loss: 1.4745
+  [train] Step 1200 | Det Loss: 1.4269
+  [train] Step 1210 | Det Loss: 1.3490
+  [train] Step 1220 | Det Loss: 1.4610
+  [train] Step 1230 | Det Loss: 1.3805
+  [train] Step 1240 | Det Loss: 1.5998
+  [train] Step 1250 | Det Loss: 1.7894
+  [train] Step 1260 | Det Loss: 1.0790
+  [train] Step 1270 | Det Loss: 1.9991
+  [train] Step 1280 | Det Loss: 1.9919
+  [train] Step 1290 | Det Loss: 1.4187
+  [train] Step 1300 | Det Loss: 1.7956
+  [train] Step 1310 | Det Loss: 1.2505
+  [train] Step 1320 | Det Loss: 1.1685
+  [train] Step 1330 | Det Loss: 1.6744
+  [train] Step 1340 | Det Loss: 1.5914
+  [train] Step 1350 | Det Loss: 1.4659
+  [train] Step 1360 | Det Loss: 2.2525
+  [train] Step 1370 | Det Loss: 2.0388
+  [train] Step 1380 | Det Loss: 1.5631
+  [train] Step 1390 | Det Loss: 2.2442
+  [train] Step 1400 | Det Loss: 2.4427
+  [train] Step 1410 | Det Loss: 2.3610
+  [train] Step 1420 | Det Loss: 1.2696
+  [train] Step 1430 | Det Loss: 1.6665
+  [train] Step 1440 | Det Loss: 1.5671
+  [train] Step 1450 | Det Loss: 1.7153
+  [train] Step 1460 | Det Loss: 1.4258
+  [train] Step 1470 | Det Loss: 1.5605
+  [train] Step 1480 | Det Loss: 2.2908
+  [train] Step 1490 | Det Loss: 1.0882
+  [train] Step 1500 | Det Loss: 2.5438
+  [train] Step 1510 | Det Loss: 1.2434
+Corrupt JPEG data: 1774 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: 1985 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 222 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+
+📊 Epoch 7 | Train: 1.5862 | Val: 6.6207 | LR: 3.95e-05
+   └─ Val P/R@2.0m: 0.0000/0.0000
+   ⏳ Val recall 개선 없음 (5/20)
+
+========== [Epoch 8/100] ==========
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1091 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 302 extraneous bytes before marker 0xd9
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 3529 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 76 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 22 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 317 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 20 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 4 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 42 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 3 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 8669 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 1801 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 1597 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 298 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 103 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 5681 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 266 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 68 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 5 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 7442 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 363 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 105 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 9 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 16 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 2636 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 253 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 924 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 573 extraneous bytes before marker 0xd9
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 92 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 2 extraneous bytes before marker 0xd9
+Corrupt JPEG data: 570 extraneous bytes before marker 0xd9

@@ -2,8 +2,11 @@
   "k": 900,
   "seed": 42,
   "val_scenarios": [
-    "scen17",
-    "scen18"
+    "scen43",
+    "scen44",
+    "scen45",
+    "scen46",
+    "scen47"
   ],
   "train_scenarios": [
     "scen01",
@@ -21,7 +24,33 @@
     "scen13",
     "scen14",
     "scen15",
-    "scen16"
+    "scen16",
+    "scen17",
+    "scen18",
+    "scen19",
+    "scen20",
+    "scen21",
+    "scen22",
+    "scen23",
+    "scen24",
+    "scen25",
+    "scen26",
+    "scen27",
+    "scen28",
+    "scen29",
+    "scen30",
+    "scen31",
+    "scen32",
+    "scen33",
+    "scen34",
+    "scen35",
+    "scen36",
+    "scen37",
+    "scen38",
+    "scen39",
+    "scen40",
+    "scen41",
+    "scen42"
   ],
-  "num_train_boxes": 10426
+  "num_train_boxes": 27162
 }
