@@ -7,11 +7,13 @@ from torch.utils.data import Dataset, DataLoader
 
 from camera_configs import INTRINSICS as _INTRINSICS, EXTRINSICS as _EXTRINSICS, CAM_ORDER
 
-IMG_SIZE = 224
-IMG_WIDTH = IMG_SIZE
-IMG_HEIGHT = IMG_SIZE
+IMG_WIDTH = 704
+IMG_HEIGHT = 256
+IMG_SIZE = IMG_HEIGHT  # legacy alias; do not use for new resize code.
 ORIG_IMG_WIDTH = 1600
 ORIG_IMG_HEIGHT = 900
+IMG_MEAN = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32).view(3, 1, 1)
+IMG_STD = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32).view(3, 1, 1)
 
 
 def scale_intrinsic_for_input(K, input_w=IMG_WIDTH, input_h=IMG_HEIGHT):
@@ -29,6 +31,71 @@ def scale_intrinsic_for_input(K, input_w=IMG_WIDTH, input_h=IMG_HEIGHT):
     return K_scaled
 
 
+def _box_corners_ego(box):
+    x, y, z_bottom = box[0], box[1], box[2]
+    w = float(np.exp(box[3]))
+    l = float(np.exp(box[4]))
+    h = float(np.exp(box[5]))
+    sin_y, cos_y = box[6], box[7]
+    z_center = z_bottom + h * 0.5
+
+    corners_local = np.array([
+        [ l * 0.5,  w * 0.5,  h * 0.5],
+        [ l * 0.5,  w * 0.5, -h * 0.5],
+        [ l * 0.5, -w * 0.5,  h * 0.5],
+        [ l * 0.5, -w * 0.5, -h * 0.5],
+        [-l * 0.5,  w * 0.5,  h * 0.5],
+        [-l * 0.5,  w * 0.5, -h * 0.5],
+        [-l * 0.5, -w * 0.5,  h * 0.5],
+        [-l * 0.5, -w * 0.5, -h * 0.5],
+        [0.0, 0.0, 0.0],
+    ], dtype=np.float32)
+
+    rot = np.array([
+        [cos_y, -sin_y, 0.0],
+        [sin_y,  cos_y, 0.0],
+        [0.0,    0.0,   1.0],
+    ], dtype=np.float32)
+    return (rot @ corners_local.T).T + np.array([x, y, z_center], dtype=np.float32)
+
+
+def box_visible_in_any_camera(box, min_depth=0.1, min_visible_points=1):
+    corners = _box_corners_ego(box)
+    corners_h = np.concatenate(
+        [corners, np.ones((corners.shape[0], 1), dtype=np.float32)],
+        axis=1,
+    )
+
+    for cam_name in CAM_ORDER:
+        K = scale_intrinsic_for_input(_INTRINSICS[cam_name])
+        E = _EXTRINSICS[cam_name]
+        pts = (E @ corners_h.T).T
+        depth = pts[:, 0]
+        valid_depth = depth > min_depth
+        if int(valid_depth.sum()) < min_visible_points:
+            continue
+
+        d = depth[valid_depth]
+        u = K[0, 0] * (-pts[valid_depth, 1]) / (d + 1e-6) + K[0, 2]
+        v = K[1, 1] * (-pts[valid_depth, 2]) / (d + 1e-6) + K[1, 2]
+
+        inside = (
+            (u >= 0.0) & (u < float(IMG_WIDTH)) &
+            (v >= 0.0) & (v < float(IMG_HEIGHT))
+        )
+        if inside.any():
+            return True
+
+        # Keep partially visible boxes whose projected valid-depth bbox intersects the image.
+        if (
+            float(u.max()) >= 0.0 and float(u.min()) < float(IMG_WIDTH) and
+            float(v.max()) >= 0.0 and float(v.min()) < float(IMG_HEIGHT)
+        ):
+            return True
+
+    return False
+
+
 class MoraiDataset(Dataset):
     """
     dataset_root/
@@ -44,15 +111,22 @@ class MoraiDataset(Dataset):
       - val_scenarios=None → 알파벳 정렬 마지막 5개를 자동 val
 
     __getitem__ 반환:
-        images              : [3, 3, 224, 224]
+        images              : [3, 3, 256, 704]
         intrinsics          : [3, 3, 3]
         extrinsics          : [3, 4, 4]
         dynamic_gt_boxes    : [N, 11]
         dynamic_gt_labels   : [N]
+        ego_pose            : [6] = timestamp, ego_x, ego_y, ego_z, ego_yaw_rad, valid
         stem                : str
     """
 
-    def __init__(self, dataset_root='./dataset', split='train', val_scenarios=None):
+    def __init__(
+        self,
+        dataset_root='/data/dataset',
+        split='train',
+        val_scenarios=None,
+        filter_visible=True,
+    ):
         if split not in ('train', 'val'):
             raise ValueError(f"split는 'train' 또는 'val'이어야 합니다: {split}")
         if not os.path.isdir(dataset_root):
@@ -95,6 +169,7 @@ class MoraiDataset(Dataset):
             )
 
         self.items = []
+        self.filter_visible = filter_visible
         for scen_dir in selected:
             lbl_dir = os.path.join(scen_dir, 'labels_3d')
             stems = sorted([
@@ -118,10 +193,11 @@ class MoraiDataset(Dataset):
         path    = os.path.join(scen_dir, 'images', cam_name, f"{stem}.jpg")
         img_bgr = cv2.imread(path)
         if img_bgr is None:
-            return torch.zeros(3, IMG_SIZE, IMG_SIZE)
+            return torch.zeros(3, IMG_HEIGHT, IMG_WIDTH)
         img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-        img_rs  = cv2.resize(img_rgb, (IMG_SIZE, IMG_SIZE))
-        return torch.from_numpy(img_rs).permute(2, 0, 1).float() / 255.0
+        img_rs  = cv2.resize(img_rgb, (IMG_WIDTH, IMG_HEIGHT))
+        img_t = torch.from_numpy(img_rs).permute(2, 0, 1).float() / 255.0
+        return (img_t - IMG_MEAN) / IMG_STD
 
     def _load_labels(self, scen_dir, stem):
         csv_path = os.path.join(scen_dir, 'labels_3d', f"{stem}.csv")
@@ -138,6 +214,8 @@ class MoraiDataset(Dataset):
                         float(row['sin_yaw']), float(row['cos_yaw']),
                         float(row['vx']),      float(row['vy']),      float(row['vz']),
                     ]
+                    if self.filter_visible and not box_visible_in_any_camera(vals):
+                        continue
                     boxes.append(vals)
                     labels.append(cls_id)
 
@@ -151,11 +229,34 @@ class MoraiDataset(Dataset):
             torch.zeros((0,),    dtype=torch.long),
         )
 
+    def _load_ego_pose(self, scen_dir, stem):
+        pose_path = os.path.join(scen_dir, 'ego_pose', f"{stem}.csv")
+        if os.path.isfile(pose_path):
+            with open(pose_path, newline='', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                row = next(reader, None)
+            if row is not None:
+                yaw = row.get('ego_yaw_rad')
+                if yaw is None or yaw == "":
+                    yaw = np.radians(float(row.get('ego_heading_deg', 0.0)))
+                return torch.tensor([
+                    float(row.get('timestamp', 0.0)),
+                    float(row.get('ego_x', 0.0)),
+                    float(row.get('ego_y', 0.0)),
+                    float(row.get('ego_z', 0.0)),
+                    float(yaw),
+                    1.0,
+                ], dtype=torch.float32)
+
+        # Older datasets do not contain ego pose metadata. valid=0 keeps
+        # temporal alignment disabled rather than using an inaccurate identity.
+        return torch.zeros(6, dtype=torch.float32)
+
     def __getitem__(self, idx):
         scen_dir, stem = self.items[idx]
         n_cams = len(CAM_ORDER)
 
-        images = torch.zeros(n_cams, 3, IMG_SIZE, IMG_SIZE)
+        images = torch.zeros(n_cams, 3, IMG_HEIGHT, IMG_WIDTH)
         for ci, cam_name in enumerate(CAM_ORDER):
             images[ci] = self._load_image(scen_dir, stem, cam_name)
 
@@ -166,6 +267,7 @@ class MoraiDataset(Dataset):
             extrinsics[ci] = torch.from_numpy(_EXTRINSICS[cam_name])
 
         gt_boxes, gt_labels = self._load_labels(scen_dir, stem)
+        ego_pose = self._load_ego_pose(scen_dir, stem)
 
         return {
             'images':            images,
@@ -173,6 +275,7 @@ class MoraiDataset(Dataset):
             'extrinsics':        extrinsics,
             'dynamic_gt_boxes':  gt_boxes,
             'dynamic_gt_labels': gt_labels,
+            'ego_pose':          ego_pose,
             'stem':              f"{os.path.basename(scen_dir)}/{stem}",
         }
 
@@ -184,13 +287,14 @@ def morai_collate_fn(batch):
         'extrinsics':        torch.stack([b['extrinsics'] for b in batch]),
         'dynamic_gt_boxes':  [b['dynamic_gt_boxes']  for b in batch],
         'dynamic_gt_labels': [b['dynamic_gt_labels'] for b in batch],
+        'ego_pose':          torch.stack([b['ego_pose'] for b in batch]),
         'stem':              [b['stem'] for b in batch],
     }
 
 
 if __name__ == "__main__":
-    ds_tr = MoraiDataset(dataset_root='./dataset', split='train')
-    ds_va = MoraiDataset(dataset_root='./dataset', split='val')
+    ds_tr = MoraiDataset(dataset_root='/data/dataset', split='train')
+    ds_va = MoraiDataset(dataset_root='/data/dataset', split='val')
 
     loader = DataLoader(ds_tr, batch_size=2, shuffle=True,
                         collate_fn=morai_collate_fn, num_workers=0)

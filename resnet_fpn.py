@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision.models import ResNet50_Weights, resnet50
 
 # 1. Bottleneck (변함없음)
 class Bottleneck(nn.Module):
@@ -32,21 +33,31 @@ class Bottleneck(nn.Module):
         out = self.relu(out)
         return out
 
-# 2. 피드백이 반영된 완벽한 ResNet50_FPN
 class ResNet50_FPN(nn.Module):
-    def __init__(self, block):
+    def __init__(self, block=None, pretrained=True):
         super(ResNet50_FPN, self).__init__()
-        self.in_channels = 64
+        weights = None
+        if pretrained:
+            try:
+                weights = ResNet50_Weights.DEFAULT
+            except Exception as exc:
+                print(f"[ResNet50_FPN] pretrained weight unavailable, fallback to scratch: {exc}")
+                weights = None
 
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        try:
+            backbone = resnet50(weights=weights)
+        except Exception as exc:
+            print(f"[ResNet50_FPN] failed to load pretrained weight, fallback to scratch: {exc}")
+            backbone = resnet50(weights=None)
+        self.conv1 = backbone.conv1
+        self.bn1 = backbone.bn1
+        self.relu = backbone.relu
+        self.maxpool = backbone.maxpool
 
-        self.layer1 = self._make_layer(block, 64, 3, stride=1)   # C2
-        self.layer2 = self._make_layer(block, 128, 4, stride=2)  # C3
-        self.layer3 = self._make_layer(block, 256, 6, stride=2)  # C4
-        self.layer4 = self._make_layer(block, 512, 3, stride=2)  # C5
+        self.layer1 = backbone.layer1   # C2
+        self.layer2 = backbone.layer2   # C3
+        self.layer3 = backbone.layer3   # C4
+        self.layer4 = backbone.layer4   # C5
 
         # --- 1x1 Conv (채널 256 통일) ---
         self.lateral4 = nn.Conv2d(2048, 256, 1)
@@ -58,20 +69,6 @@ class ResNet50_FPN(nn.Module):
         self.output4 = nn.Conv2d(256, 256, 3, padding=1)
         self.output3 = nn.Conv2d(256, 256, 3, padding=1)
         self.output2 = nn.Conv2d(256, 256, 3, padding=1)
-
-    def _make_layer(self, block, planes, num_blocks, stride):
-        downsample = None
-        if stride != 1 or self.in_channels != planes * block.expansion:
-            downsample = nn.Sequential(
-                nn.Conv2d(self.in_channels, planes * block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion),
-            )
-        layers = []
-        layers.append(block(self.in_channels, planes, stride, downsample))
-        self.in_channels = planes * block.expansion
-        for _ in range(1, num_blocks):
-            layers.append(block(self.in_channels, planes))
-        return nn.Sequential(*layers)
 
     def forward(self, x):
         c1 = self.maxpool(self.relu(self.bn1(self.conv1(x))))
@@ -92,8 +89,8 @@ class ResNet50_FPN(nn.Module):
 # --- 테스트 ---
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = ResNet50_FPN(Bottleneck).to(device)
-    imgs = torch.randn(3, 3, 224, 224).to(device)
+    model = ResNet50_FPN(pretrained=False).to(device)
+    imgs = torch.randn(3, 3, 256, 704).to(device)
     
     features = model(imgs)
     

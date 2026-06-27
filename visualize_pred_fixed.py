@@ -133,7 +133,7 @@ def visualize_one(dataset, model, device, stem, out_dir, det_thresh):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset-root', default='./dataset')
+    parser.add_argument('--dataset-root', default='/data/dataset')
     parser.add_argument('--weights', default='best_model.pth')
     parser.add_argument('--split', default='val', choices=['train', 'val'])
     parser.add_argument('--stem', default=None)

@@ -169,7 +169,7 @@ def build_groups_for_bag(bag_path: str, dataset_dir: str):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('bags', nargs='*', help='.bag 파일 경로들 (생략 시 기본 목록 전체)')
-    parser.add_argument('--dataset_dir', '-d', default='./dataset')
+    parser.add_argument('--dataset_dir', '-d', default='/data/dataset')
     args = parser.parse_args()
 
     bag_paths = args.bags if args.bags else DEFAULT_BAGS

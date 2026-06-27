@@ -10,15 +10,22 @@ BOX_SCALE = [50., 50., 3.,
 
 
 class FocalLoss(nn.Module):
-    def __init__(self, alpha=0.25, gamma=2.0):
+    def __init__(self, fg_alpha=0.75, bg_alpha=0.25, gamma=2.0):
         super().__init__()
-        self.alpha = alpha
+        self.fg_alpha = fg_alpha
+        self.bg_alpha = bg_alpha
         self.gamma = gamma
 
     def forward(self, pred_logits, target, num_fg=None):
         ce_loss = F.cross_entropy(pred_logits, target, reduction='none')
         pt = torch.exp(-ce_loss)
-        focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
+        bg_class = pred_logits.shape[-1] - 1
+        alpha_t = torch.where(
+            target == bg_class,
+            ce_loss.new_tensor(self.bg_alpha),
+            ce_loss.new_tensor(self.fg_alpha),
+        )
+        focal_loss = alpha_t * (1 - pt) ** self.gamma * ce_loss
         if num_fg is not None:
             return focal_loss.sum() / num_fg.clamp(min=1).float()
         return focal_loss.mean()
@@ -137,18 +144,85 @@ class MapHungarianMatcher(nn.Module):
 
 
 class CustomLoss(nn.Module):
-    def __init__(self, num_classes=1, bg_weight=0.1):
+    def __init__(
+        self,
+        num_classes=1,
+        bg_weight=0.1,
+        quality_weight=0.05,
+        bg_quality_weight=0.0,
+        quality_distance_scale=4.0,
+        yawness_weight=0.5,
+    ):
         super().__init__()
         self.num_classes = num_classes
         self.bg_class = num_classes
         self.matcher = HungarianMatcher()
-        self.focal_loss = FocalLoss(alpha=1.0, gamma=2.0)
+        self.focal_loss = FocalLoss(fg_alpha=0.75, bg_alpha=0.25, gamma=2.0)
         self.bg_weight = bg_weight
+        self.quality_weight = quality_weight
+        self.bg_quality_weight = bg_quality_weight
+        self.quality_distance_scale = quality_distance_scale
+        self.yawness_weight = yawness_weight
 
-    def forward(self, pred_classes, pred_boxes, gt_classes, gt_boxes):
+    def quality_loss(self, pred_quality, pred_boxes, gt_boxes, pred_idx, gt_idx):
+        if pred_quality is None:
+            return pred_boxes.new_tensor(0.0)
+
+        if pred_quality.ndim == 1:
+            pred_quality = pred_quality.unsqueeze(-1)
+
+        centerness = pred_quality[:, 0]
+        cns_target = torch.zeros_like(centerness)
+        cns_weight = torch.full_like(centerness, self.bg_quality_weight)
+
+        has_yawness = pred_quality.shape[-1] > 1
+        if has_yawness:
+            yawness = pred_quality[:, 1]
+            yns_target = torch.zeros_like(yawness)
+            yns_weight = torch.full_like(yawness, self.bg_quality_weight)
+
+        if len(pred_idx) > 0:
+            distance = torch.norm(
+                pred_boxes[pred_idx, :2].detach() - gt_boxes[gt_idx, :2].detach(),
+                dim=-1,
+            )
+            cns = torch.exp(-distance / self.quality_distance_scale).clamp(0.0, 1.0)
+            cns_target[pred_idx] = cns.to(dtype=cns_target.dtype)
+            cns_weight[pred_idx] = 1.0
+
+            if has_yawness:
+                yaw_cos = F.cosine_similarity(
+                    pred_boxes[pred_idx, 6:8].detach(),
+                    gt_boxes[gt_idx, 6:8].detach(),
+                    dim=-1,
+                )
+                yns_target[pred_idx] = (yaw_cos > 0).to(dtype=yns_target.dtype)
+                yns_weight[pred_idx] = 1.0
+
+        cns_loss = F.binary_cross_entropy_with_logits(
+            centerness,
+            cns_target,
+            weight=cns_weight,
+            reduction='sum',
+        )
+        cns_loss = cns_loss / cns_weight.sum().clamp(min=1.0)
+        if not has_yawness:
+            return cns_loss
+
+        yns_loss = F.binary_cross_entropy_with_logits(
+            yawness,
+            yns_target,
+            weight=yns_weight,
+            reduction='sum',
+        )
+        yns_loss = yns_loss / yns_weight.sum().clamp(min=1.0)
+        return cns_loss + self.yawness_weight * yns_loss
+
+    def forward(self, pred_classes, pred_boxes, gt_classes, gt_boxes, pred_quality=None):
         """
         pred_classes: [900, 2]
         pred_boxes:   [900, 11]
+        pred_quality: [900, 2] optional; [:,0]=centerness, [:,1]=yawness
         gt_classes:   [N]
         gt_boxes:     [N, 11]
         """
@@ -175,8 +249,15 @@ class CustomLoss(nn.Module):
                 device=device
             )
             loss_class = self.focal_loss(pred_classes, target) * self.bg_weight
+            loss_quality = self.quality_loss(
+                pred_quality,
+                pred_boxes,
+                gt_boxes,
+                torch.zeros(0, dtype=torch.long, device=device),
+                torch.zeros(0, dtype=torch.long, device=device),
+            ) * self.bg_weight
             zero = torch.tensor(0.0, device=device)
-            return loss_class, loss_class, zero
+            return loss_class + self.quality_weight * loss_quality, loss_class, zero, loss_quality
 
         pred_idx, gt_idx = self.matcher(pred_classes, pred_boxes, gt_classes, gt_boxes)
 
@@ -200,8 +281,10 @@ class CustomLoss(nn.Module):
                 gt_boxes[gt_idx] / scale
             )
 
-        total_loss = 2.0 * loss_class + 0.25 * loss_bbox
-        return total_loss, loss_class, loss_bbox
+        loss_quality = self.quality_loss(pred_quality, pred_boxes, gt_boxes, pred_idx, gt_idx)
+
+        total_loss = 2.0 * loss_class + 2.0 * loss_bbox + self.quality_weight * loss_quality
+        return total_loss, loss_class, loss_bbox, loss_quality
 
 
 if __name__ == "__main__":
@@ -209,23 +292,25 @@ if __name__ == "__main__":
 
     dummy_pred_classes = torch.randn(900, 2)
     dummy_pred_boxes = torch.randn(900, 11)
+    dummy_pred_quality = torch.randn(900)
     dummy_gt_classes = torch.randint(0, 1, (5,), dtype=torch.long)
     dummy_gt_boxes = torch.randn(5, 11)
 
     criterion = CustomLoss(num_classes=1)
-    total_loss, cls_loss, box_loss = criterion(
+    total_loss, cls_loss, box_loss, quality_loss = criterion(
         dummy_pred_classes, dummy_pred_boxes,
-        dummy_gt_classes, dummy_gt_boxes
+        dummy_gt_classes, dummy_gt_boxes, dummy_pred_quality
     )
     print(f"✅ 분류 Loss (Focal) : {cls_loss.item():.4f}")
     print(f"✅ 박스 Loss         : {box_loss.item():.4f}")
+    print(f"✅ 품질 Loss         : {quality_loss.item():.4f}")
     print(f"🔥 총합 Loss         : {total_loss.item():.4f}")
 
     empty_gt_classes = torch.zeros(0, dtype=torch.long)
     empty_gt_boxes = torch.zeros(0, 11)
-    total_loss2, _, _ = criterion(
+    total_loss2, _, _, _ = criterion(
         dummy_pred_classes, dummy_pred_boxes,
-        empty_gt_classes, empty_gt_boxes
+        empty_gt_classes, empty_gt_boxes, dummy_pred_quality
     )
     print(f"\n✅ 빈 GT (전부 배경) Loss: {total_loss2.item():.4f}")
     print("\n🎉 Focal Loss + 배경 클래스 테스트 통과!")

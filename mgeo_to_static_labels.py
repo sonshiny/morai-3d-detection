@@ -10,7 +10,7 @@ import rosbag
 from scipy.interpolate import interp1d
 
 MGEO_DIR = './mgeo_data'
-DATASET_DIR = './dataset'
+DATASET_DIR = '/data/dataset'
 POINTS_PER_LINE = 20
 MAX_RANGE = 110.0
 

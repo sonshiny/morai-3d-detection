@@ -14,6 +14,8 @@ import rospy
 from sensor_msgs.msg import CompressedImage
 from morai_msgs.msg import EgoVehicleStatus, ObjectStatusList
 
+from morai_dataset import box_visible_in_any_camera
+
 
 # =========================
 # 3 Camera Topics
@@ -93,6 +95,16 @@ CSV_HEADER = [
     "vx",
     "vy",
     "vz"
+]
+
+EGO_POSE_HEADER = [
+    "frame_id",
+    "timestamp",
+    "ego_x",
+    "ego_y",
+    "ego_z",
+    "ego_heading_deg",
+    "ego_yaw_rad",
 ]
 
 
@@ -233,9 +245,11 @@ class MoraiLive3Cam3DLabelerCSV:
 
         self.img_root_dir = os.path.join(dataset_dir, "images")
         self.csv_dir = os.path.join(dataset_dir, "labels_3d")
+        self.ego_pose_dir = os.path.join(dataset_dir, "ego_pose")
 
         os.makedirs(self.img_root_dir, exist_ok=True)
         os.makedirs(self.csv_dir, exist_ok=True)
+        os.makedirs(self.ego_pose_dir, exist_ok=True)
 
         self.camera_image_dirs = {}
         for topic, cam_name in CAMERA_TOPICS.items():
@@ -382,6 +396,13 @@ class MoraiLive3Cam3DLabelerCSV:
             obj_msg=obj_msg
         )
 
+        self.save_ego_pose(
+            stem=stem,
+            frame_id=self.frame_idx,
+            timestamp=ref_ts,
+            ego_msg=ego_msg,
+        )
+
         frame_csv_path = os.path.join(self.csv_dir, f"{stem}.csv")
 
         with open(frame_csv_path, "w", newline="", encoding="utf-8") as f:
@@ -419,6 +440,23 @@ class MoraiLive3Cam3DLabelerCSV:
         )
 
         cv2.imwrite(img_path, img)
+
+    def save_ego_pose(self, stem, frame_id, timestamp, ego_msg):
+        ego_heading_deg = float(ego_msg.heading)
+        ego_yaw_rad = float(np.radians(ego_heading_deg))
+        pose_path = os.path.join(self.ego_pose_dir, f"{stem}.csv")
+        with open(pose_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(EGO_POSE_HEADER)
+            writer.writerow([
+                frame_id,
+                f"{timestamp:.6f}",
+                f"{float(ego_msg.position.x):.6f}",
+                f"{float(ego_msg.position.y):.6f}",
+                f"{float(ego_msg.position.z):.6f}",
+                f"{ego_heading_deg:.6f}",
+                f"{ego_yaw_rad:.9f}",
+            ])
 
     def make_label_rows(self, frame_id, timestamp, ego_msg, obj_msg):
         ego_pos = [
@@ -536,6 +574,15 @@ class MoraiLive3Cam3DLabelerCSV:
         ln_l = float(np.log(max(l, 0.01)))
         ln_h = float(np.log(max(h, 0.01)))
 
+        box_for_visibility = [
+            float(pos_ego[0]), float(pos_ego[1]), float(pos_ego[2]),
+            ln_w, ln_l, ln_h,
+            sin_yaw, cos_yaw,
+            float(vel_ego[0]), float(vel_ego[1]), float(vel_ego[2]),
+        ]
+        if not box_visible_in_any_camera(box_for_visibility):
+            return None
+
         class_name = CLASS_NAMES[class_id]
 
         row = [
@@ -570,7 +617,7 @@ def main():
 
     parser.add_argument(
         "--dataset_root",
-        default="./dataset",
+        default="/data/dataset",
         help="scen01, scen02가 생성될 상위 dataset 폴더"
     )
 

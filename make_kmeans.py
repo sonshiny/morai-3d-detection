@@ -11,6 +11,8 @@ import os
 
 import numpy as np
 
+from morai_dataset import box_visible_in_any_camera
+
 
 DEFAULT_K = 900
 DEFAULT_XY_OUT = 'anchor_kmeans_xy.npy'
@@ -81,6 +83,8 @@ def collect_boxes(dataset_root, val_scenarios):
                     float(row['sin_yaw']), float(row['cos_yaw']),
                     float(row['vx']),      float(row['vy']),      float(row['vz']),
                 ])
+                if not box_visible_in_any_camera(boxes[-1]):
+                    boxes.pop()
     return np.asarray(boxes, dtype=np.float32)
 
 
@@ -227,7 +231,7 @@ def metadata_is_valid(path, dataset_root, val_scenarios, k):
 
 
 def ensure_kmeans_files(
-    dataset_root='./dataset',
+    dataset_root='/data/dataset',
     val_scenarios=None,
     k=DEFAULT_K,
     xy_out=DEFAULT_XY_OUT,
@@ -269,7 +273,7 @@ def ensure_kmeans_files(
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset-root', default='./dataset')
+    parser.add_argument('--dataset-root', default='/data/dataset')
     parser.add_argument(
         '--val-scenarios', nargs='*', default=None,
         help='val로 뺄 시나리오 이름. 비우면 알파벳 마지막 5개. '

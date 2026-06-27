@@ -1,0 +1,85 @@
+MORAI 3D Detection Improvement History
+=====================================
+
+v1 - Dataset and training baseline cleanup
+------------------------------------------
+- Dataset root was aligned to /data/dataset.
+- Train/val split was organized by scenario.
+- K-means anchors are generated from the train split.
+- Resume/checkpoint flow was organized with last_checkpoint.pth.
+- Basic training history and checkpoint usage were clarified.
+
+
+v2 - SparseDrive-style model structure improvements
+---------------------------------------------------
+- SparseDrive-style 6 refinement decoder layers were added.
+- Auxiliary loss was applied to intermediate decoder layers.
+- Camera calibration projection is used for multi-camera feature sampling.
+- Learned camera embedding was added for camera-specific aggregation.
+- Deformable aggregation path was added with CUDA op support and grid_sample fallback.
+- Quality head was added for centerness/yawness-style confidence calibration.
+
+
+v3 - Training stability fixes
+-----------------------------
+- Regression branch final layer was zero-initialized so K-means anchors are not destroyed at startup.
+- Hungarian matcher cost balance was adjusted.
+- Classification and box loss balance was adjusted.
+- AMP was disabled for stability.
+- Backbone BatchNorm is frozen during training.
+- One-batch overfit debugging was used to verify that the model can actually learn.
+
+
+v4 - Evaluation, checkpoint, and inference improvements
+-------------------------------------------------------
+- training_history.csv is saved each epoch.
+- training_curves.png is updated each epoch.
+- Raw, calibrated, and softcalibrated precision/recall/F1 metrics are logged.
+- Best model saving was separated from last checkpoint saving.
+- Best model epoch snapshots include epoch and score in the filename.
+- Best model saving was reduced to three important files:
+  - best_model.pth
+  - best_model_raw_f1_025.pth
+  - best_model_val_loss.pth
+- last_checkpoint.pth is supported in inference by reading model_state.
+- 3D cuboid camera visualization was added.
+- Box projection was corrected to treat z as bottom/ground and project using box center height.
+- Inference projection now safely handles boxes outside the camera view.
+
+
+v5 - Quality calibration collapse mitigation
+--------------------------------------------
+- Quality target was relaxed:
+  - quality_distance_scale: 2.0 -> 4.0
+  - distance for quality target: xyz distance -> BEV xy distance
+- Quality loss weight was reduced:
+  - quality_weight: 0.1 -> 0.05
+- Yawness contribution was reduced with yawness_weight = 0.5.
+- Primary best metric was changed:
+  - before: softcalibrated F1 @ score >= 0.25
+  - now:    softcalibrated F1 @ score >= 0.15
+- 0.15 threshold metrics were added to CSV logging.
+- Validation score statistics were added:
+  - val_quality_mean
+  - val_raw_score_mean
+  - val_soft_score_mean
+- Center-distance suppression was added to NMS:
+  - same-class boxes with centers closer than 1.5 m are suppressed.
+- The same center-distance NMS behavior was applied to inference.
+
+
+Current recommended fresh training command
+------------------------------------------
+cd /workspace/morai-3d-detection
+
+rm -f last_checkpoint.pth best_model*.pth morai_autonav_weights.pth
+rm -f training_history.csv training_curves.png
+
+python3 train.py
+
+Notes:
+- anchor_kmeans_*.npy can be kept if the dataset is unchanged.
+- last_checkpoint.pth is for resume, not for final inference.
+- best_model.pth is the primary inference candidate.
+- best_model_raw_f1_025.pth is useful for comparing quality-free raw score behavior.
+- best_model_val_loss.pth is useful for checking the lowest validation loss model.

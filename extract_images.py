@@ -35,7 +35,7 @@ CAM_TOPICS = {
     '/morai/cam_front_right': 'cam_front_right',
 }
 
-DATASET_DIR = './dataset'
+DATASET_DIR = '/data/dataset'
 IMG_DIR = os.path.join(DATASET_DIR, 'images')
 MANIFEST_PATH = os.path.join(DATASET_DIR, 'image_manifest.json')
 

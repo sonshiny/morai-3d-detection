@@ -1,0 +1,12 @@
+dataset/
+data/
+outputs/
+checkpoints/
+*.bag
+*.pcd
+*.bin
+*.png
+*.jpg
+*.mp4
+__pycache__/
+.git/

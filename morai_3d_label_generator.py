@@ -278,7 +278,7 @@ def generate_for_bag(bag_path: str, dataset_dir: str, global_offset_ratio, max_s
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('bags', nargs='*', help='.bag 파일 경로들 (생략 시 기본 목록 전체)')
-    parser.add_argument('--dataset_dir', '-d', default='./dataset')
+    parser.add_argument('--dataset_dir', '-d', default='/data/dataset')
     parser.add_argument('--offset_ratio', type=float, default=None,
                         help='NPC 후축→중심 보정 비율 (기본: 차종별 0.2)')
     parser.add_argument('--max_sync_gap', type=float, default=0.10,
