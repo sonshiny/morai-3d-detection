@@ -91,6 +91,20 @@ CAM_POSITIONS = {
 }
 
 # ===========================================================
+# 라이다 외부파라미터 (카메라와 독립, CAM_ORDER에는 넣지 않는다)
+# MORAI /lidar3D 포인트가 REP-103(X전방, Y좌, Z상)으로 퍼블리시된다는
+# 가정. cam_front에 스캔을 투영해 실증 검증 필요.
+# ===========================================================
+LIDAR_TRANSLATION = [1.92, 0.0, 1.35]
+
+def _compute_lidar_to_body(translation):
+    T = np.eye(4, dtype=np.float32)
+    T[:3, 3] = np.array(translation, dtype=np.float32)
+    return T
+
+LIDAR_TO_BODY = _compute_lidar_to_body(LIDAR_TRANSLATION)  # lidar-frame point -> body-frame (rot=0, 평행이동만)
+
+# ===========================================================
 # 검증 (직접 실행 시)
 # ===========================================================
 if __name__ == '__main__':

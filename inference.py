@@ -258,11 +258,10 @@ def run_inference(
         det_box = model_out['det_box'][0]
         det_quality = model_out['det_quality'][0]
 
-        # det_cls : [900, 3]  (0=vehicle, 1=pedestrian, 2=bg)
-        # Detection confidence is the best foreground probability. If bg is
-        # included in argmax, early but useful low-confidence boxes are dropped.
-        probs       = det_cls.softmax(-1).cpu().numpy()
-        fg_probs    = probs[:, :2]
+        # det_cls : [900, 2]  (0=vehicle, 1=pedestrian) — sigmoid 2-class, 배경 채널 없음
+        # Detection confidence is the best per-class sigmoid probability.
+        probs       = det_cls.sigmoid().cpu().numpy()
+        fg_probs    = probs
         best_cls    = np.argmax(fg_probs, axis=1)     # [900]
         if det_quality.ndim == 1:
             centerness = det_quality

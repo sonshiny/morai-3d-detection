@@ -6,8 +6,8 @@ import torch.nn as nn
 class FFNDecoder(nn.Module):
     """
     Detection decoder.
-    num_classes includes background. Current project uses:
-      0=vehicle, 1=pedestrian, 2=background
+    sigmoid focal 방식: num_classes = foreground 클래스 수(배경 채널 없음).
+    Current project uses: 0=vehicle, 1=pedestrian
     """
     def __init__(self, hidden_dim=256, num_classes=2):  
         super(FFNDecoder, self).__init__()
@@ -41,13 +41,13 @@ class FFNDecoder(nn.Module):
             nn.Linear(hidden_dim, 2),
         )
 
-        # RetinaNet 스타일 prior bias 초기화: 초기 예측을 "기본 background"로 만들어 cls loss 폭발 방지
-        prior_prob = 0.1  # 0.01은 객체점수 0.22가 bg 0.77 못넘김 → 0.1로 완화
-        bias_value = -math.log((1.0 - prior_prob) / prior_prob)  # 객체 클래스 bias ≈ -2.197
+        # RetinaNet(Lin et al.) 스타일 prior bias 초기화: sigmoid focal loss에서
+        # 초기 foreground 확률을 prior_prob로 낮춰 cls loss 폭발 방지
+        prior_prob = 0.1
+        bias_value = -math.log((1.0 - prior_prob) / prior_prob)  # ≈ -2.197
         # cls_branch의 마지막 nn.Linear를 인덱스 하드코딩 없이 동적으로 탐색
         last_cls_linear = [m for m in self.cls_branch if isinstance(m, nn.Linear)][-1]
         nn.init.constant_(last_cls_linear.bias, bias_value)        # 모든 클래스 bias를 낮게 시작
-        last_cls_linear.bias.data[num_classes - 1] = 0.0           # background(마지막 인덱스) bias만 0으로 복원
         # K-means anchor가 이미 GT 중심을 잘 덮고 있으므로, refinement는
         # 처음에 anchor를 망가뜨리지 않도록 0 offset에서 시작한다.
         last_reg_linear = [m for m in self.reg_branch if isinstance(m, nn.Linear)][-1]

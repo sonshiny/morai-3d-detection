@@ -11,7 +11,8 @@ import cv2
 import numpy as np
 import rospy
 
-from sensor_msgs.msg import CompressedImage
+from sensor_msgs.msg import CompressedImage, PointCloud2
+from sensor_msgs import point_cloud2
 from morai_msgs.msg import EgoVehicleStatus, ObjectStatusList
 
 from morai_dataset import box_visible_in_any_camera
@@ -28,6 +29,8 @@ CAMERA_TOPICS = {
 }
 
 REFERENCE_CAMERA_TOPIC = "/cam_front"
+
+LIDAR_TOPIC = "/lidar3D"
 
 
 # =========================
@@ -237,19 +240,22 @@ def find_closest_with_ts(buffer, target_sec, max_gap):
 
 
 class MoraiLive3Cam3DLabelerCSV:
-    def __init__(self, dataset_dir, scenario_name, max_sync_gap=0.10, save_images=True):
+    def __init__(self, dataset_dir, scenario_name, max_sync_gap=0.10, save_images=True, save_lidar=True):
         self.dataset_dir = dataset_dir
         self.scenario_name = scenario_name
         self.max_sync_gap = max_sync_gap
         self.save_images = save_images
+        self.save_lidar = save_lidar
 
         self.img_root_dir = os.path.join(dataset_dir, "images")
         self.csv_dir = os.path.join(dataset_dir, "labels_3d")
         self.ego_pose_dir = os.path.join(dataset_dir, "ego_pose")
+        self.lidar_dir = os.path.join(dataset_dir, "lidar")
 
         os.makedirs(self.img_root_dir, exist_ok=True)
         os.makedirs(self.csv_dir, exist_ok=True)
         os.makedirs(self.ego_pose_dir, exist_ok=True)
+        os.makedirs(self.lidar_dir, exist_ok=True)
 
         self.camera_image_dirs = {}
         for topic, cam_name in CAMERA_TOPICS.items():
@@ -263,6 +269,8 @@ class MoraiLive3Cam3DLabelerCSV:
         self.camera_buffers = {
             topic: deque(maxlen=100) for topic in CAMERA_TOPICS.keys()
         }
+
+        self.lidar_buffer = deque(maxlen=20)
 
         self.frame_idx = 0
         self.last_processed_ref_ts = None
@@ -290,6 +298,13 @@ class MoraiLive3Cam3DLabelerCSV:
                 queue_size=10,
                 buff_size=2**24
             )
+
+        rospy.Subscriber(
+            LIDAR_TOPIC,
+            PointCloud2,
+            self.lidar_callback,
+            queue_size=2
+        )
 
         rospy.loginfo("MORAI live 3-camera 3D CSV labeler started")
         rospy.loginfo("scenario       = %s", self.scenario_name)
@@ -325,6 +340,12 @@ class MoraiLive3Cam3DLabelerCSV:
 
         # 카메라 메시지가 들어올 때마다 현재 3개 카메라가 모두 모였는지 확인
         self.try_process_synced_frame()
+
+    def lidar_callback(self, msg):
+        # 라이다는 프레임 트리거가 아니다. 버퍼에만 쌓고, 저장은
+        # /cam_front가 트리거한 try_process_synced_frame에서 비차단으로 매칭한다.
+        ts = msg_time_or_now(msg)
+        self.lidar_buffer.append((ts, msg))
 
     def try_process_synced_frame(self):
         ref_buffer = self.camera_buffers[REFERENCE_CAMERA_TOPIC]
@@ -389,6 +410,17 @@ class MoraiLive3Cam3DLabelerCSV:
                     stem=stem
                 )
 
+        # 비차단 라이다 매칭+저장. 라이다 실패는 프레임을 버리지 않는다
+        # (카메라/ego/object all-or-nothing 게이트는 위에서 이미 통과함).
+        if self.save_lidar:
+            lidar_msg = find_closest(self.lidar_buffer, ref_ts, self.max_sync_gap)
+            if lidar_msg is not None:
+                self.save_lidar_pointcloud(stem=stem, msg=lidar_msg)
+            else:
+                rospy.logwarn_throttle(1.0,
+                    "lidar sync miss: frame=%06d (depth GT will skip this frame)",
+                    self.frame_idx)
+
         rows = self.make_label_rows(
             frame_id=self.frame_idx,
             timestamp=ref_ts,
@@ -440,6 +472,16 @@ class MoraiLive3Cam3DLabelerCSV:
         )
 
         cv2.imwrite(img_path, img)
+
+    def save_lidar_pointcloud(self, stem, msg):
+        field_names = [f.name for f in msg.fields]
+        fields = ("x", "y", "z", "intensity") if "intensity" in field_names else ("x", "y", "z")
+        pts = list(point_cloud2.read_points(msg, field_names=fields, skip_nans=True))
+        if len(pts) == 0:
+            rospy.logwarn_throttle(1.0, "lidar scan empty: stem=%s", stem)
+            return
+        arr = np.asarray(pts, dtype=np.float32)
+        np.save(os.path.join(self.lidar_dir, f"{stem}.npy"), arr)
 
     def save_ego_pose(self, stem, frame_id, timestamp, ego_msg):
         ego_heading_deg = float(ego_msg.heading)
@@ -647,6 +689,12 @@ def main():
         help="이미지 저장을 끄고 CSV만 저장"
     )
 
+    parser.add_argument(
+        "--no_save_lidar",
+        action="store_true",
+        help="라이다 포인트클라우드 저장을 끈다 (기본은 저장 on)"
+    )
+
     args, _ = parser.parse_known_args()
 
     rospy.init_node("morai_live_3cam_3d_labeler_csv", anonymous=False)
@@ -663,7 +711,8 @@ def main():
         dataset_dir=scenario_dir,
         scenario_name=scenario_name,
         max_sync_gap=args.max_sync_gap,
-        save_images=not args.no_save_images
+        save_images=not args.no_save_images,
+        save_lidar=not args.no_save_lidar
     )
 
     rospy.spin()

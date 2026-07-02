@@ -8,27 +8,32 @@ BOX_SCALE = [50., 50., 3.,
              1.,  1.,
              30., 30., 5.]
 
+# 단일프레임: velocity(8,9,10) 제외. temporal 복구 시 11로 변경.
+# box regression/cost에는 앞 8채널(0:8 = x,y,z,ln_w,ln_l,ln_h,sin_yaw,cos_yaw)만 사용.
+REG_CHANNELS = 8
+
 
 class FocalLoss(nn.Module):
-    def __init__(self, fg_alpha=0.75, bg_alpha=0.25, gamma=2.0):
+    """RetinaNet(Lin et al.) sigmoid focal loss.
+
+    각 클래스 채널을 독립적인 binary 분류로 보고 sigmoid focal을 적용한다.
+    배경 클래스는 별도 채널이 없으며, 모든 채널이 0인 anchor가 곧 배경이다.
+    """
+    def __init__(self, alpha=0.25, gamma=2.0):
         super().__init__()
-        self.fg_alpha = fg_alpha
-        self.bg_alpha = bg_alpha
+        self.alpha = alpha
         self.gamma = gamma
 
     def forward(self, pred_logits, target, num_fg=None):
-        ce_loss = F.cross_entropy(pred_logits, target, reduction='none')
-        pt = torch.exp(-ce_loss)
-        bg_class = pred_logits.shape[-1] - 1
-        alpha_t = torch.where(
-            target == bg_class,
-            ce_loss.new_tensor(self.bg_alpha),
-            ce_loss.new_tensor(self.fg_alpha),
-        )
-        focal_loss = alpha_t * (1 - pt) ** self.gamma * ce_loss
+        # pred_logits: [N, num_classes], target: [N, num_classes] multi-label one-hot (float)
+        p = torch.sigmoid(pred_logits)
+        pt = p * target + (1 - p) * (1 - target)
+        alpha_t = self.alpha * target + (1 - self.alpha) * (1 - target)
+        ce = F.binary_cross_entropy_with_logits(pred_logits, target, reduction='none')
+        focal_loss = alpha_t * (1 - pt) ** self.gamma * ce
         if num_fg is not None:
             return focal_loss.sum() / num_fg.clamp(min=1).float()
-        return focal_loss.mean()
+        return focal_loss.sum()
 
 
 class HungarianMatcher(nn.Module):
@@ -40,7 +45,7 @@ class HungarianMatcher(nn.Module):
     @torch.no_grad()
     def forward(self, pred_classes, pred_boxes, gt_classes, gt_boxes):
         """
-        pred_classes : [900, num_classes+1]
+        pred_classes : [900, num_classes]
         pred_boxes   : [900, 11]
         gt_classes   : [N]
         gt_boxes     : [N, 11]
@@ -69,12 +74,12 @@ class HungarianMatcher(nn.Module):
 
         scale = torch.tensor(BOX_SCALE, device=device, dtype=pred_boxes.dtype)
 
-        out_prob = pred_classes.softmax(-1)
+        out_prob = pred_classes.sigmoid()
         gt_classes = gt_classes.clamp(min=0, max=pred_classes.shape[-1] - 1)
         cost_class = -out_prob[:, gt_classes]
 
-        pred_norm = pred_boxes / scale
-        gt_norm = gt_boxes / scale
+        pred_norm = pred_boxes[:, :REG_CHANNELS] / scale[:REG_CHANNELS]
+        gt_norm = gt_boxes[:, :REG_CHANNELS] / scale[:REG_CHANNELS]
         cost_bbox = torch.cdist(pred_norm, gt_norm, p=1)
 
         C = self.cost_class * cost_class + self.cost_bbox * cost_bbox
@@ -148,16 +153,15 @@ class CustomLoss(nn.Module):
         self,
         num_classes=1,
         bg_weight=0.1,
-        quality_weight=0.05,
+        quality_weight=0.2,
         bg_quality_weight=0.0,
         quality_distance_scale=4.0,
         yawness_weight=0.5,
     ):
         super().__init__()
         self.num_classes = num_classes
-        self.bg_class = num_classes
         self.matcher = HungarianMatcher()
-        self.focal_loss = FocalLoss(fg_alpha=0.75, bg_alpha=0.25, gamma=2.0)
+        self.focal_loss = FocalLoss(alpha=0.25, gamma=2.0)
         self.bg_weight = bg_weight
         self.quality_weight = quality_weight
         self.bg_quality_weight = bg_quality_weight
@@ -242,13 +246,14 @@ class CustomLoss(nn.Module):
         gt_classes = gt_classes.long().view(-1)
 
         if gt_boxes.shape[0] == 0 or gt_classes.shape[0] == 0:
-            target = torch.full(
-                (num_anchors,),
-                self.bg_class,
-                dtype=torch.long,
+            # GT가 없으면 모든 anchor가 배경 → 전 채널 0인 one-hot target.
+            target = torch.zeros(
+                (num_anchors, self.num_classes),
+                dtype=pred_classes.dtype,
                 device=device
             )
-            loss_class = self.focal_loss(pred_classes, target) * self.bg_weight
+            num_fg = torch.tensor(0, device=device)
+            loss_class = self.focal_loss(pred_classes, target, num_fg=num_fg) * self.bg_weight
             loss_quality = self.quality_loss(
                 pred_quality,
                 pred_boxes,
@@ -261,13 +266,14 @@ class CustomLoss(nn.Module):
 
         pred_idx, gt_idx = self.matcher(pred_classes, pred_boxes, gt_classes, gt_boxes)
 
-        target = torch.full(
-            (num_anchors,),
-            self.bg_class,
-            dtype=torch.long,
+        # sigmoid focal: [num_anchors, num_classes] multi-label one-hot.
+        # 매칭 안 된 anchor는 전 채널 0(=배경), 매칭된 anchor만 해당 클래스 채널을 1.0으로 set.
+        target = torch.zeros(
+            (num_anchors, self.num_classes),
+            dtype=pred_classes.dtype,
             device=device
         )
-        target[pred_idx] = gt_classes[gt_idx]
+        target[pred_idx, gt_classes[gt_idx]] = 1.0
 
         num_fg = torch.tensor(len(pred_idx), device=device)
         loss_class = self.focal_loss(pred_classes, target, num_fg=num_fg)
@@ -277,8 +283,8 @@ class CustomLoss(nn.Module):
         else:
             scale = torch.tensor(BOX_SCALE, device=device, dtype=pred_boxes.dtype)
             loss_bbox = F.l1_loss(
-                pred_boxes[pred_idx] / scale,
-                gt_boxes[gt_idx] / scale
+                pred_boxes[pred_idx, :REG_CHANNELS] / scale[:REG_CHANNELS],
+                gt_boxes[gt_idx, :REG_CHANNELS] / scale[:REG_CHANNELS]
             )
 
         loss_quality = self.quality_loss(pred_quality, pred_boxes, gt_boxes, pred_idx, gt_idx)

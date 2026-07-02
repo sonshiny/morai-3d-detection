@@ -1,3 +1,4 @@
+import wandb
 import math
 import os
 import csv
@@ -532,7 +533,7 @@ class SparseRefinementDecoderLayer(nn.Module):
             nn.Linear(hidden_dim * 4, hidden_dim),
         )
         self.out_norm = nn.LayerNorm(hidden_dim)
-        self.det_decoder = FFNDecoder(hidden_dim=hidden_dim, num_classes=num_classes + 1)
+        self.det_decoder = FFNDecoder(hidden_dim=hidden_dim, num_classes=num_classes)
         self.dropout = nn.Dropout(dropout)
 
     def forward(
@@ -697,7 +698,7 @@ class AutoNavModel(nn.Module):
         ):
             return
 
-        probs = det_cls.detach().float().softmax(dim=-1)[..., :self.num_classes]
+        probs = det_cls.detach().float().sigmoid()
         confidence = probs.max(dim=-1).values
         if det_quality is not None:
             centerness = quality_centerness(det_quality.detach().float()).view(-1)
@@ -804,6 +805,9 @@ class AutoNavModel(nn.Module):
 # ===========================================================
 # Val 헬퍼 — score/class-aware Precision & Recall
 # ===========================================================
+CLASS_ID_NAMES = {0: "vehicle", 1: "pedestrian"}
+
+
 @torch.no_grad()
 def bev_nms_axis_aligned(boxes, scores, labels, iou_thresh=0.3, center_dist_thresh=1.5):
     if boxes.numel() == 0:
@@ -852,6 +856,146 @@ def bev_nms_axis_aligned(boxes, scores, labels, iou_thresh=0.3, center_dist_thre
     return torch.stack(keep_all)
 
 
+# ===========================================================
+# [v9] 회전 박스 기반 BEV NMS
+#   기존 bev_nms_axis_aligned는 axis-aligned IoU만 계산해서 비스듬한 차량의
+#   중복 탐지를 정확히 억제하지 못했다. v9는 box[6]/box[7]로 실제 yaw를 복원해
+#   BEV 상 회전 직사각형 간 IoU(Sutherland-Hodgman polygon clipping)를 계산하고,
+#   center-distance suppression threshold도 2.0m로 상향한다.
+# ===========================================================
+def _bev_rbox_corners(boxes):
+    """boxes: [N, >=8] (x,y,z,ln_w,ln_l,ln_h,sin_yaw,cos_yaw...).
+    반환: BEV 4 corner [N, 4, 2] (ego 좌표, x=forward, y=left)."""
+    x = boxes[:, 0]
+    y = boxes[:, 1]
+    half_w = torch.exp(boxes[:, 3]) * 0.5   # 좌우 폭(y축)
+    half_l = torch.exp(boxes[:, 4]) * 0.5   # 전후 길이(x축)
+    sin_y = boxes[:, 6]
+    cos_y = boxes[:, 7]
+    norm = torch.sqrt(sin_y * sin_y + cos_y * cos_y).clamp(min=1e-6)
+    sin_y = sin_y / norm
+    cos_y = cos_y / norm
+    # local corner (x, y): FL, FR, RR, RL — 하나의 방향으로 감기는 순서
+    lx = torch.stack([half_l, half_l, -half_l, -half_l], dim=-1)
+    ly = torch.stack([half_w, -half_w, -half_w, half_w], dim=-1)
+    cos_e = cos_y.unsqueeze(-1)
+    sin_e = sin_y.unsqueeze(-1)
+    gx = cos_e * lx - sin_e * ly + x.unsqueeze(-1)
+    gy = sin_e * lx + cos_e * ly + y.unsqueeze(-1)
+    return torch.stack([gx, gy], dim=-1)     # [N, 4, 2]
+
+
+def _poly_signed_area(poly):
+    """poly: [..., K, 2] → signed area [...] (shoelace)."""
+    x = poly[..., 0]
+    y = poly[..., 1]
+    x2 = torch.roll(x, shifts=-1, dims=-1)
+    y2 = torch.roll(y, shifts=-1, dims=-1)
+    return 0.5 * (x * y2 - x2 * y).sum(dim=-1)
+
+
+def _clip_against_edge(subj, a, b):
+    """subj polygon [M, K, 2]을 CCW clip 다각형의 한 edge(a→b)로 자른다.
+    interior는 edge 왼쪽. 잘려나간 vertex는 직전 유효 vertex로 중복 채워
+    (면적 0 기여) 고정 크기 [M, 2K, 2]로 반환 → 완전 벡터화."""
+    M, K, _ = subj.shape
+    ax = a[:, 0:1]
+    ay = a[:, 1:2]
+    bx = b[:, 0:1]
+    by = b[:, 1:2]
+    ex = bx - ax
+    ey = by - ay
+
+    px = subj[..., 0]
+    py = subj[..., 1]
+    cross = ex * (py - ay) - ey * (px - ax)   # >=0 이면 interior
+    inside = cross >= 0
+
+    px2 = torch.roll(px, shifts=-1, dims=-1)
+    py2 = torch.roll(py, shifts=-1, dims=-1)
+    inside2 = torch.roll(inside, shifts=-1, dims=-1)
+    cross2 = ex * (py2 - ay) - ey * (px2 - ax)
+
+    denom = cross - cross2
+    t = cross / torch.where(denom.abs() < 1e-9, torch.ones_like(denom), denom)
+    ix = px + t * (px2 - px)
+    iy = py + t * (py2 - py)
+    crossing = inside ^ inside2
+
+    slot1 = torch.stack([px, py], dim=-1)     # 현재 vertex (inside면 유지)
+    slot2 = torch.stack([ix, iy], dim=-1)     # edge 교차점 (crossing이면 추가)
+    out = torch.stack([slot1, slot2], dim=2).reshape(M, 2 * K, 2)
+    valid = torch.stack([inside, crossing], dim=2).reshape(M, 2 * K)
+
+    idx = torch.arange(2 * K, device=subj.device).view(1, -1).expand(M, -1)
+    valid_idx = torch.where(valid, idx, torch.full_like(idx, -1))
+    last_valid, _ = torch.cummax(valid_idx, dim=1)
+    overall_last = last_valid[:, -1:].clamp(min=0)
+    last_valid = torch.where(last_valid < 0, overall_last, last_valid)
+    safe = last_valid.clamp(min=0)
+    return torch.gather(out, 1, safe.unsqueeze(-1).expand(-1, -1, 2))
+
+
+def _rotated_iou_one_to_many(cur_corners, rest_corners):
+    """cur_corners [4, 2] vs rest_corners [M, 4, 2] → 회전 IoU [M]."""
+    M = rest_corners.shape[0]
+    if M == 0:
+        return rest_corners.new_zeros(0)
+
+    clip = rest_corners
+    sa = _poly_signed_area(clip)
+    clip_rev = torch.flip(clip, dims=[1])
+    clip = torch.where((sa < 0).view(M, 1, 1), clip_rev, clip)   # CCW 통일
+
+    subj = cur_corners.unsqueeze(0).expand(M, -1, -1).contiguous()
+    for j in range(4):
+        a = clip[:, j, :]
+        b = clip[:, (j + 1) % 4, :]
+        subj = _clip_against_edge(subj, a, b)
+
+    inter = _poly_signed_area(subj).abs()
+    area_cur = _poly_signed_area(cur_corners.unsqueeze(0)).abs()
+    area_rest = _poly_signed_area(rest_corners).abs()
+    union = area_cur + area_rest - inter
+    return (inter / union.clamp(min=1e-6)).clamp(min=0.0, max=1.0)
+
+
+@torch.no_grad()
+def bev_nms_rotated(boxes, scores, labels, iou_thresh=0.3, center_dist_thresh=2.0):
+    """회전 박스 기반 BEV NMS. box[6]/box[7]의 sin/cos으로 실제 yaw를 복원해
+    회전 직사각형 IoU를 계산하고, center-distance(<2.0m) suppression을 병행한다."""
+    if boxes.numel() == 0:
+        return torch.zeros(0, dtype=torch.long, device=boxes.device)
+
+    corners = _bev_rbox_corners(boxes)       # [N, 4, 2]
+    keep_all = []
+    for cls_id in labels.unique():
+        cls_idx = torch.where(labels == cls_id)[0]
+        cls_scores = scores[cls_idx]
+        order = torch.argsort(cls_scores, descending=True)
+
+        while order.numel() > 0:
+            current_local = order[0]
+            current_idx = cls_idx[current_local]
+            keep_all.append(current_idx)
+            if order.numel() == 1:
+                break
+
+            rest_local = order[1:]
+            rest_idx = cls_idx[rest_local]
+
+            iou = _rotated_iou_one_to_many(corners[current_idx], corners[rest_idx])
+            center_dist = torch.norm(
+                boxes[rest_idx, :2] - boxes[current_idx, :2], dim=-1
+            )
+            suppress = (iou >= iou_thresh) | (center_dist < center_dist_thresh)
+            order = rest_local[~suppress]
+
+    if not keep_all:
+        return torch.zeros(0, dtype=torch.long, device=boxes.device)
+    return torch.stack(keep_all)
+
+
 @torch.no_grad()
 def decode_detections(
     det_classes,
@@ -864,8 +1008,8 @@ def decode_detections(
     apply_quality=True,
     quality_power=1.0,
 ):
-    probs = det_classes.softmax(dim=-1)
-    fg_probs = probs[..., :bg_idx]
+    probs = det_classes.sigmoid()
+    fg_probs = probs
     scores, labels = fg_probs.max(dim=-1)
     if apply_quality and det_quality is not None:
         centerness = quality_centerness(det_quality).view(-1)
@@ -885,7 +1029,8 @@ def decode_detections(
         boxes = boxes[topk_idx]
         labels = labels[topk_idx]
         scores = scores[topk_idx]
-    keep_nms = bev_nms_axis_aligned(boxes, scores, labels, iou_thresh=nms_iou)
+    # v9: 회전 박스 기반 NMS (기존 bev_nms_axis_aligned는 호환용으로 유지)
+    keep_nms = bev_nms_rotated(boxes, scores, labels, iou_thresh=nms_iou)
     return boxes[keep_nms], labels[keep_nms], scores[keep_nms]
 
 
@@ -936,6 +1081,66 @@ def compute_detection_counts(
 
     fn = int((~matched_gt).sum().item())
     return tp, fp, fn
+
+
+@torch.no_grad()
+def compute_detection_counts_by_class(
+    det_classes,
+    det_boxes,
+    gt_classes,
+    gt_boxes,
+    det_quality=None,
+    distance_thr=2.0,
+    score_thresh=0.10,
+    apply_quality=True,
+    quality_power=1.0,
+    class_ids=(0, 1),
+):
+    """클래스별 (tp, fp, fn)을 dict로 반환. 매칭은 class-aware라 각 클래스가
+    독립적이므로 클래스별 합은 compute_detection_counts의 합산값과 동일하다."""
+    pred_boxes, pred_labels, pred_scores = decode_detections(
+        det_classes,
+        det_boxes,
+        det_quality=det_quality,
+        score_thresh=score_thresh,
+        apply_quality=apply_quality,
+        quality_power=quality_power,
+    )
+    gt_classes = gt_classes.long().view(-1)
+
+    result = {}
+    for cls in class_ids:
+        p_sel = pred_labels == cls
+        g_sel = gt_classes == cls
+        p_boxes = pred_boxes[p_sel]
+        p_scores = pred_scores[p_sel]
+        g_boxes = gt_boxes[g_sel]
+
+        n_gt = int(g_boxes.shape[0])
+        matched = torch.zeros(n_gt, dtype=torch.bool, device=det_boxes.device)
+        tp = 0
+        fp = 0
+        order = torch.argsort(p_scores, descending=True)
+        for pred_idx in order:
+            if n_gt == 0:
+                fp += 1
+                continue
+            candidates = torch.where(~matched)[0]
+            if candidates.numel() == 0:
+                fp += 1
+                continue
+            distances = torch.norm(
+                g_boxes[candidates, :2] - p_boxes[pred_idx, :2], dim=-1
+            )
+            best_dist, best_local = distances.min(dim=0)
+            if best_dist <= distance_thr:
+                matched[candidates[best_local]] = True
+                tp += 1
+            else:
+                fp += 1
+        fn = int((~matched).sum().item())
+        result[cls] = (tp, fp, fn)
+    return result
 
 
 def compute_auxiliary_detection_loss(model_out, batch, criterion, device, aux_weight=0.5):
@@ -1017,6 +1222,15 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
         }
         for mode in metric_modes
     }
+    # v9: 클래스별(vehicle/pedestrian) 카운트 추가 집계
+    class_ids = tuple(sorted(CLASS_ID_NAMES.keys()))
+    metric_counts_cls = {
+        mode: {
+            thr: {cls: {'tp': 0, 'fp': 0, 'fn': 0} for cls in class_ids}
+            for thr in metric_score_thresholds
+        }
+        for mode in metric_modes
+    }
     score_sums = {'quality': 0.0, 'raw': 0.0, 'soft': 0.0}
     score_count = 0
 
@@ -1047,7 +1261,7 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
             gt_classes = batch['dynamic_gt_labels'][i].to(device)
 
             if compute_metric:
-                fg_probs = det_classes_b[i].softmax(dim=-1)[..., :2]
+                fg_probs = det_classes_b[i].sigmoid()
                 raw_scores = fg_probs.max(dim=-1).values
                 quality = torch.sigmoid(
                     quality_centerness(det_quality_b[i]).view(-1)
@@ -1060,7 +1274,8 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
 
                 for mode, (apply_quality, quality_power) in metric_modes.items():
                     for score_thr in metric_score_thresholds:
-                        tp, fp, fn = compute_detection_counts(
+                        # 클래스별 카운트 (합산은 클래스별 합과 동일 → 기존 합산 로그 값 보존)
+                        per_cls = compute_detection_counts_by_class(
                             det_classes_b[i],
                             det_boxes_b[i],
                             gt_classes,
@@ -1070,7 +1285,17 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
                             score_thresh=score_thr,
                             apply_quality=apply_quality,
                             quality_power=quality_power,
+                            class_ids=class_ids,
                         )
+                        tp = fp = fn = 0
+                        for cls in class_ids:
+                            ctp, cfp, cfn = per_cls[cls]
+                            metric_counts_cls[mode][score_thr][cls]['tp'] += ctp
+                            metric_counts_cls[mode][score_thr][cls]['fp'] += cfp
+                            metric_counts_cls[mode][score_thr][cls]['fn'] += cfn
+                            tp += ctp
+                            fp += cfp
+                            fn += cfn
                         metric_counts[mode][score_thr]['tp'] += tp
                         metric_counts[mode][score_thr]['fp'] += fp
                         metric_counts[mode][score_thr]['fn'] += fn
@@ -1100,6 +1325,26 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
                 'fn': fn,
             }
 
+    by_mode_class = {}
+    for mode, counts_by_thr in metric_counts_cls.items():
+        by_mode_class[mode] = {}
+        for score_thr, counts_by_cls in counts_by_thr.items():
+            by_mode_class[mode][score_thr] = {}
+            for cls, counts in counts_by_cls.items():
+                tp = counts['tp']
+                fp = counts['fp']
+                fn = counts['fn']
+                precision = tp / max(tp + fp, 1)
+                recall = tp / max(tp + fn, 1)
+                by_mode_class[mode][score_thr][cls] = {
+                    'precision': precision,
+                    'recall': recall,
+                    'f1': 2.0 * precision * recall / max(precision + recall, 1e-12),
+                    'tp': tp,
+                    'fp': fp,
+                    'fn': fn,
+                }
+
     main = by_mode['calibrated'][main_score_threshold]
     score_stats = {
         key: value / max(score_count, 1)
@@ -1111,6 +1356,7 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
         'score_thresh': main_score_threshold,
         'by_score': by_mode['calibrated'],
         'by_mode': by_mode,
+        'by_mode_class': by_mode_class,
         'score_stats': score_stats,
     }
 
@@ -1267,7 +1513,7 @@ def save_best_with_epoch(model, fixed_path, epoch, tag, score):
 # ===========================================================
 if __name__ == "__main__":
     # ─── Config ────────────────────────────────────────
-    DATASET_ROOT = '/data/dataset'
+    DATASET_ROOT = './dataset'
     # val로 뺄 시나리오 이름. None이면 알파벳 정렬 마지막 5개를 자동 사용.
     # ⚠️ make_kmeans.py 의 --val-scenarios와 반드시 일치시킬 것.
     VAL_SCENARIOS = None
@@ -1368,21 +1614,37 @@ if __name__ == "__main__":
             )
 
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=not USE_TEMPORAL_MEMORY,
-                              collate_fn=morai_collate_fn, num_workers=2)
+                              collate_fn=morai_collate_fn, num_workers=0)
     val_loader   = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False,
-                              collate_fn=morai_collate_fn, num_workers=2)
+                              collate_fn=morai_collate_fn, num_workers=0)
 
-    # num_classes=2: vehicle, pedestrian (bg_class=2)
-    det_criterion = CustomLoss(num_classes=2).to(device)
+    # num_classes=2: vehicle, pedestrian (sigmoid focal, 배경 채널 없음)
+    # v9: quality_weight=0.2 명시 — centerness/confidence 학습 강화
+    det_criterion = CustomLoss(num_classes=2, quality_weight=0.2).to(device)
 
     backbone_params = list(model.backbone.parameters())
     backbone_ids    = set(id(p) for p in backbone_params)
     other_params    = [p for p in model.parameters() if id(p) not in backbone_ids]
 
+    wandb.init(
+        project="morai-3d-detection",
+        name="v10",
+        tags=["v10"],
+        config={
+            "lr_backbone": 2e-5,
+            "lr_head": 1e-4,
+            "wd_backbone": 1e-3,
+            "wd_head": 1e-2,
+            "batch_size": 4,
+            "grad_accum": 2,
+        }
+    )
+
+
     optimizer = optim.AdamW([
-        {'params': backbone_params, 'lr': 2e-5},
-        {'params': other_params,    'lr': 1e-4},
-    ], weight_decay=1e-3)
+        {'params': backbone_params, 'lr': 1e-5,  'weight_decay': 1e-3},
+        {'params': other_params,    'lr': 5e-5,  'weight_decay': 1e-2},
+    ])
 
     updates_per_epoch = max(math.ceil(len(train_loader) / GRAD_ACCUM_STEPS), 1)
     total_update_steps = max(updates_per_epoch * NUM_EPOCHS, 1)
@@ -1420,9 +1682,20 @@ if __name__ == "__main__":
     if RESUME_FROM is not None and os.path.isfile(RESUME_FROM):
         ckpt = torch.load(RESUME_FROM, map_location=device)
         if isinstance(ckpt, dict) and 'model_state' in ckpt:
-            model.load_state_dict(ckpt['model_state'])
+            ckpt_state = ckpt['model_state']
+            model_state = model.state_dict()
+            filtered = {k: v for k, v in ckpt_state.items()
+                        if k in model_state and v.shape == model_state[k].shape}
+            # v9: cls_branch는 v8 가중치를 그대로 이어받는다.
+            #     (v8에서 하던 prior_prob 재초기화용 명시적 제거를 비활성화)
+            # for k in [k for k in list(filtered) if 'cls_branch' in k]:
+            #     del filtered[k]
+            skipped = [k for k in ckpt_state if k not in filtered]
+            model_state.update(filtered)
+            model.load_state_dict(model_state)
+            print(f"[체크포인트] {len(filtered)}/{len(ckpt_state)} 파라미터 로드, {len(skipped)}개 스킵: {skipped[:3]}")
             if 'optimizer_state' in ckpt:
-                optimizer.load_state_dict(ckpt['optimizer_state'])
+                pass  # optimizer state 스킵
             if 'scaler_state' in ckpt and ckpt['scaler_state'] is not None:
                 scaler.load_state_dict(ckpt['scaler_state'])
             start_epoch = int(ckpt.get('epoch', -1)) + 1
@@ -1432,6 +1705,7 @@ if __name__ == "__main__":
             best_scores.update(ckpt.get('best_scores', {}))
             best_scores['val_loss'] = min(best_scores['val_loss'], best_val_loss)
             epochs_no_improve = int(ckpt.get('epochs_no_improve', epochs_no_improve))
+            epochs_no_improve = 0  # v9 새 실험 시작 — 체크포인트 로드 직후 카운터 리셋
             history_records = ckpt.get('history_records', [])
             if not history_records:
                 history_records = load_training_history(HISTORY_CSV_PATH, max_epoch=start_epoch)
@@ -1549,6 +1823,25 @@ if __name__ == "__main__":
                         f" score>={score_thr:.2f} "
                         f"{metric['precision']:.4f}/{metric['recall']:.4f}/{metric['f1']:.4f}"
                     )
+            # v9: primary mode 기준 클래스별(vehicle/pedestrian) 분리 수치
+            prim_cls = (
+                val_metrics.get('by_mode_class', {})
+                .get(PRIMARY_BEST_MODE, {})
+                .get(PRIMARY_BEST_THR, {})
+            )
+            if prim_cls:
+                msg += (
+                    f"\n   └─ Val {PRIMARY_BEST_MODE} per-class P/R/F1@{RECALL_THR}m "
+                    f"(score>={PRIMARY_BEST_THR:.2f}):"
+                )
+                for cls in sorted(CLASS_ID_NAMES):
+                    cm = prim_cls.get(cls)
+                    if cm is None:
+                        continue
+                    msg += (
+                        f" {CLASS_ID_NAMES[cls]} "
+                        f"{cm['precision']:.4f}/{cm['recall']:.4f}/{cm['f1']:.4f}"
+                    )
         print(msg)
 
         history_records.append(make_history_record(
@@ -1563,6 +1856,37 @@ if __name__ == "__main__":
         ))
         save_training_history(history_records, HISTORY_CSV_PATH, HISTORY_PLOT_PATH)
         print(f"   📈 Loss 그래프 갱신: {HISTORY_PLOT_PATH} | 로그: {HISTORY_CSV_PATH}")
+
+        wandb_log = {
+            "epoch": epoch + 1,
+            "train/loss": train_loss,
+            "train/cls_loss": train_cls_loss,
+            "train/box_loss": train_box_loss,
+            "train/quality_loss": train_quality_loss,
+            "val/loss": val_loss,
+            "lr": lr,
+        }
+        if val_metrics is not None:
+            for mode in HISTORY_METRIC_MODES:
+                for score_thr in HISTORY_SCORE_THRESHOLDS:
+                    metric = val_metrics['by_mode'][mode][score_thr]
+                    wandb_log[f"val/{mode}/precision@{score_thr:.2f}"] = metric['precision']
+                    wandb_log[f"val/{mode}/recall@{score_thr:.2f}"] = metric['recall']
+                    wandb_log[f"val/{mode}/f1@{score_thr:.2f}"] = metric['f1']
+            # v9: 클래스별 P/R/F1 (예: val/softcalibrated/vehicle/f1@0.15)
+            by_mode_class = val_metrics.get('by_mode_class', {})
+            for mode in HISTORY_METRIC_MODES:
+                for score_thr in HISTORY_SCORE_THRESHOLDS:
+                    cls_metrics = by_mode_class.get(mode, {}).get(score_thr, {})
+                    for cls in sorted(CLASS_ID_NAMES):
+                        cm = cls_metrics.get(cls)
+                        if cm is None:
+                            continue
+                        cname = CLASS_ID_NAMES[cls]
+                        wandb_log[f"val/{mode}/{cname}/precision@{score_thr:.2f}"] = cm['precision']
+                        wandb_log[f"val/{mode}/{cname}/recall@{score_thr:.2f}"] = cm['recall']
+                        wandb_log[f"val/{mode}/{cname}/f1@{score_thr:.2f}"] = cm['f1']
+        wandb.log(wandb_log)
 
         # ─── Best save: 실사용/분석 기준을 분리 저장 ─────────
         primary_score = metric_value(
@@ -1666,7 +1990,9 @@ if __name__ == "__main__":
     print(f"💾 최종 모델 저장: {FINAL_WEIGHTS_PATH}")
     print(
         f"📊 Best primary {PRIMARY_BEST_MODE} {PRIMARY_BEST_KEY}@{PRIMARY_BEST_THR:.2f}: "
+        
         f"{best_scores['primary']:.4f} | "
         f"Best raw F1@0.25: {best_scores['raw_f1_025']:.4f} | "
         f"Best Val Loss: {best_scores['val_loss']:.4f}"
     )
+    wandb.finish()

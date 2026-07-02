@@ -1,7 +1,29 @@
-*.bag
+# 모델 가중치
 *.pth
-dataset/
-inference_results/
+*.pt
+
+# 백업
+*.bak
+
+# 학습 로그
+train_log_*.txt
+training_curves.png
+training_history.csv
+
+# 시각화 결과
+pred_vis*/
+
+# wandb
+wandb/
+
+# anchor 바이너리
+*.npy
+anchor_kmeans_meta.json
+
+# 기타
+*.deb
 __pycache__/
 *.pyc
-result.txt
+
+# 데이터셋 (11GB, 별도 외장 백업)
+dataset/

@@ -38,7 +38,7 @@ def score_stats(model_out):
     cls = model_out['det_cls'].detach().float()
     quality = model_out['det_quality'].detach().float()
 
-    raw = cls.softmax(dim=-1)[..., :-1].max(dim=-1).values
+    raw = cls.sigmoid().max(dim=-1).values
     calibrated = raw * torch.sigmoid(quality[..., 0])
 
     parts = []
