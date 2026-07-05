@@ -807,6 +807,17 @@ class AutoNavModel(nn.Module):
 # ===========================================================
 CLASS_ID_NAMES = {0: "vehicle", 1: "pedestrian"}
 
+# v10: 평가 전용 — ego 방사거리(sqrt(x^2+y^2)) 기준 3구간. [lo, hi) 반개구간.
+# 55m 이상은 어느 버킷에도 집계되지 않는다(학습/체크포인트 로직과 무관, 로깅 전용).
+DISTANCE_BUCKETS = ((0.0, 20.0), (20.0, 40.0), (40.0, 55.0))
+
+
+def _distance_bucket_idx(dist, buckets=DISTANCE_BUCKETS):
+    for i, (lo, hi) in enumerate(buckets):
+        if lo <= dist < hi:
+            return i
+    return None
+
 
 @torch.no_grad()
 def bev_nms_axis_aligned(boxes, scores, labels, iou_thresh=0.3, center_dist_thresh=1.5):
@@ -1143,6 +1154,87 @@ def compute_detection_counts_by_class(
     return result
 
 
+@torch.no_grad()
+def compute_detection_counts_by_distance(
+    det_classes,
+    det_boxes,
+    gt_classes,
+    gt_boxes,
+    det_quality=None,
+    distance_thr=2.0,
+    score_thresh=0.15,
+    apply_quality=True,
+    quality_power=0.5,
+    buckets=DISTANCE_BUCKETS,
+):
+    """v10 평가 전용: ego 방사거리(sqrt(x^2+y^2)) 3구간별 tp/fp/fn과
+    매칭쌍 center distance 합/개수를 반환한다. 매칭 알고리즘은
+    compute_detection_counts와 동일(greedy, class-aware, score 내림차순).
+    TP/FN은 GT 방사거리로, FP는 매칭 대상 GT가 없으므로 예측 자신의
+    방사거리로 버킷팅한다. 학습/손실/체크포인트 로직에는 쓰이지 않는다.
+    """
+    pred_boxes, pred_labels, pred_scores = decode_detections(
+        det_classes,
+        det_boxes,
+        det_quality=det_quality,
+        score_thresh=score_thresh,
+        apply_quality=apply_quality,
+        quality_power=quality_power,
+    )
+    gt_classes = gt_classes.long().view(-1)
+
+    result = {
+        i: {'tp': 0, 'fp': 0, 'fn': 0, 'dist_sum': 0.0, 'dist_n': 0}
+        for i in range(len(buckets))
+    }
+
+    if gt_boxes.numel() == 0:
+        for pred_idx in range(pred_boxes.shape[0]):
+            pdist = torch.norm(pred_boxes[pred_idx, :2]).item()
+            b = _distance_bucket_idx(pdist, buckets)
+            if b is not None:
+                result[b]['fp'] += 1
+        return result
+
+    gt_dist = torch.norm(gt_boxes[:, :2], dim=-1)
+    matched_gt = torch.zeros(gt_boxes.shape[0], dtype=torch.bool, device=gt_boxes.device)
+
+    order = torch.argsort(pred_scores, descending=True)
+    for pred_idx in order:
+        same_cls = gt_classes == pred_labels[pred_idx]
+        candidates = torch.where(same_cls & (~matched_gt))[0]
+        if candidates.numel() == 0:
+            pdist = torch.norm(pred_boxes[pred_idx, :2]).item()
+            b = _distance_bucket_idx(pdist, buckets)
+            if b is not None:
+                result[b]['fp'] += 1
+            continue
+
+        distances = torch.norm(gt_boxes[candidates, :2] - pred_boxes[pred_idx, :2], dim=-1)
+        best_dist, best_local = distances.min(dim=0)
+        if best_dist <= distance_thr:
+            g_idx = candidates[best_local]
+            matched_gt[g_idx] = True
+            b = _distance_bucket_idx(gt_dist[g_idx].item(), buckets)
+            if b is not None:
+                result[b]['tp'] += 1
+                result[b]['dist_sum'] += float(best_dist.item())
+                result[b]['dist_n'] += 1
+        else:
+            pdist = torch.norm(pred_boxes[pred_idx, :2]).item()
+            b = _distance_bucket_idx(pdist, buckets)
+            if b is not None:
+                result[b]['fp'] += 1
+
+    fn_idx = torch.where(~matched_gt)[0]
+    for g_idx in fn_idx:
+        b = _distance_bucket_idx(gt_dist[g_idx].item(), buckets)
+        if b is not None:
+            result[b]['fn'] += 1
+
+    return result
+
+
 def compute_auxiliary_detection_loss(model_out, batch, criterion, device, aux_weight=0.5):
     """
     SparseDrive처럼 모든 decoder refinement 출력에 loss를 건다.
@@ -1234,6 +1326,12 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
     score_sums = {'quality': 0.0, 'raw': 0.0, 'soft': 0.0}
     score_count = 0
 
+    # v10: softcalibrated@0.15 ego 방사거리 3구간 P/R/F1 + 매칭쌍 평균 center distance (로깅 전용)
+    distance_bucket_counts = {
+        i: {'tp': 0, 'fp': 0, 'fn': 0, 'dist_sum': 0.0, 'dist_n': 0}
+        for i in range(len(DISTANCE_BUCKETS))
+    }
+
     for batch in loader:
         images     = batch['images'].to(device)
         intrinsics = batch['intrinsics'].to(device)
@@ -1300,6 +1398,22 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
                         metric_counts[mode][score_thr]['fp'] += fp
                         metric_counts[mode][score_thr]['fn'] += fn
 
+                # v10: softcalibrated@0.15 거리구간별 집계 (기존 루프와 독립)
+                bucket_result = compute_detection_counts_by_distance(
+                    det_classes_b[i],
+                    det_boxes_b[i],
+                    gt_classes,
+                    gt_boxes,
+                    det_quality=det_quality_b[i],
+                    distance_thr=recall_thr,
+                    score_thresh=0.15,
+                    apply_quality=True,
+                    quality_power=0.5,
+                )
+                for b, counts in bucket_result.items():
+                    for k in ('tp', 'fp', 'fn', 'dist_sum', 'dist_n'):
+                        distance_bucket_counts[b][k] += counts[k]
+
         loss_sum += batch_loss.item()
         n_batches += 1
 
@@ -1350,6 +1464,23 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
         key: value / max(score_count, 1)
         for key, value in score_sums.items()
     }
+
+    # v10: softcalibrated@0.15 거리구간별 P/R/F1 + 평균 matched center distance
+    by_distance = {}
+    for b, (lo, hi) in enumerate(DISTANCE_BUCKETS):
+        c = distance_bucket_counts[b]
+        d_precision = c['tp'] / max(c['tp'] + c['fp'], 1)
+        d_recall = c['tp'] / max(c['tp'] + c['fn'], 1)
+        by_distance[(lo, hi)] = {
+            'precision': d_precision,
+            'recall': d_recall,
+            'f1': 2.0 * d_precision * d_recall / max(d_precision + d_recall, 1e-12),
+            'mean_center_dist': (c['dist_sum'] / c['dist_n']) if c['dist_n'] > 0 else None,
+            'tp': c['tp'],
+            'fp': c['fp'],
+            'fn': c['fn'],
+        }
+
     return avg_loss, {
         'precision': main['precision'],
         'recall': main['recall'],
@@ -1358,6 +1489,7 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
         'by_mode': by_mode,
         'by_mode_class': by_mode_class,
         'score_stats': score_stats,
+        'by_distance': by_distance,
     }
 
 
@@ -1842,6 +1974,19 @@ if __name__ == "__main__":
                         f" {CLASS_ID_NAMES[cls]} "
                         f"{cm['precision']:.4f}/{cm['recall']:.4f}/{cm['f1']:.4f}"
                     )
+            # v10: softcalibrated@0.15 ego 방사거리 3구간 P/R/F1 + 매칭쌍 평균 center distance
+            by_distance = val_metrics.get('by_distance', {})
+            if by_distance:
+                msg += "\n   └─ Val softcalibrated 거리구간별 P/R/F1@0.15 (matched center dist):"
+                for (lo, hi), dm in by_distance.items():
+                    cdist_str = (
+                        f"{dm['mean_center_dist']:.3f}m" if dm['mean_center_dist'] is not None else "n/a"
+                    )
+                    msg += (
+                        f" [{lo:.0f}-{hi:.0f}m) "
+                        f"{dm['precision']:.4f}/{dm['recall']:.4f}/{dm['f1']:.4f} "
+                        f"(cdist={cdist_str})"
+                    )
         print(msg)
 
         history_records.append(make_history_record(
@@ -1886,6 +2031,14 @@ if __name__ == "__main__":
                         wandb_log[f"val/{mode}/{cname}/precision@{score_thr:.2f}"] = cm['precision']
                         wandb_log[f"val/{mode}/{cname}/recall@{score_thr:.2f}"] = cm['recall']
                         wandb_log[f"val/{mode}/{cname}/f1@{score_thr:.2f}"] = cm['f1']
+            # v10: softcalibrated@0.15 거리구간별 P/R/F1 + 평균 matched center distance
+            for (lo, hi), dm in val_metrics.get('by_distance', {}).items():
+                tag = f"dist_{lo:.0f}_{hi:.0f}m"
+                wandb_log[f"val/softcalibrated/{tag}/precision@0.15"] = dm['precision']
+                wandb_log[f"val/softcalibrated/{tag}/recall@0.15"] = dm['recall']
+                wandb_log[f"val/softcalibrated/{tag}/f1@0.15"] = dm['f1']
+                if dm['mean_center_dist'] is not None:
+                    wandb_log[f"val/softcalibrated/{tag}/mean_center_dist@0.15"] = dm['mean_center_dist']
         wandb.log(wandb_log)
 
         # ─── Best save: 실사용/분석 기준을 분리 저장 ─────────

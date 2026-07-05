@@ -1,0 +1,32 @@
+nohup: ignoring input
+[device] cuda
+[load] state_dict 로드 완료: /home/autonav/projects/morai-3d-detection/best_model.pth
+[MoraiDataset:val] 시나리오 ['scen43', 'scen44', 'scen45', 'scen46', 'scen47'] | 1,851 프레임
+
+[validate] compute_metric=True 로 1회 평가 실행...
+
+/usr/lib/python3/dist-packages/requests/__init__.py:89: RequestsDependencyWarning: urllib3 (2.2.3) or chardet (3.0.4) doesn't match a supported version!
+  warnings.warn("urllib3 ({}) or chardet ({}) doesn't match a supported "
+Corrupt JPEG data: 1774 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: bad Huffman code
+Corrupt JPEG data: 1985 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: premature end of data segment
+Corrupt JPEG data: 222 extraneous bytes before marker 0xd9
+Corrupt JPEG data: premature end of data segment
+========================================================================
+  Val loss: 1.2559
+------------------------------------------------------------------------
+  [softcalibrated @ score>=0.15] 전체 (거리 무관)
+    P/R/F1 = 0.4055 / 0.2670 / 0.3220   (tp=1874, fp=2747, fn=5145)
+------------------------------------------------------------------------
+  [softcalibrated @ score>=0.15] ego 방사거리 구간별 (v10 by_distance)
+              구간 |       P |       R |      F1 | mean_cdist | tp/fp/fn
+         [0-20m) | 0.5096 | 0.5311 | 0.5201 |    1.066 m | 1196/1151/1056
+        [20-40m) | 0.3438 | 0.1910 | 0.2456 |    1.185 m | 601/1147/2546
+        [40-55m) | 0.1462 | 0.0598 | 0.0849 |    1.250 m | 74/432/1164
+========================================================================

@@ -271,6 +271,8 @@ class MoraiLive3Cam3DLabelerCSV:
         }
 
         self.lidar_buffer = deque(maxlen=20)
+        self._lidar_gaps = []
+        self._lidar_miss = 0
 
         self.frame_idx = 0
         self.last_processed_ref_ts = None
@@ -306,6 +308,8 @@ class MoraiLive3Cam3DLabelerCSV:
             queue_size=2
         )
 
+        rospy.on_shutdown(self._dump_lidar_stats)
+
         rospy.loginfo("MORAI live 3-camera 3D CSV labeler started")
         rospy.loginfo("scenario       = %s", self.scenario_name)
         rospy.loginfo("target classes = vehicle + pedestrian")
@@ -327,16 +331,26 @@ class MoraiLive3Cam3DLabelerCSV:
         )
 
     def ego_callback(self, msg):
-        ts = msg_time_or_now(msg)
+        ts = rospy.Time.now().to_sec()   # header.stamp는 카메라와 다른 시계라 신뢰 불가
         self.ego_buffer.append((ts, msg))
 
     def object_callback(self, msg):
-        ts = msg_time_or_now(msg)
+        ts = rospy.Time.now().to_sec()   # header.stamp는 카메라와 다른 시계라 신뢰 불가
         self.obj_buffer.append((ts, msg))
 
     def camera_callback(self, img_msg, cam_topic):
         ts = msg_time_or_now(img_msg)
         self.camera_buffers[cam_topic].append((ts, img_msg))
+
+        # 진단(임시): 카메라 header.stamp가 rospy.Time.now()와 같은 시계 계열인지 확인용.
+        # diff가 작으면(<0.1s) ego/object의 now() 전환과 정합됨. 검증 후 제거 가능.
+        rospy.loginfo_throttle(
+            5.0,
+            "cam ref_ts=%.3f vs now=%.3f (diff %.3f)",
+            ts,
+            rospy.Time.now().to_sec(),
+            rospy.Time.now().to_sec() - ts
+        )
 
         # 카메라 메시지가 들어올 때마다 현재 3개 카메라가 모두 모였는지 확인
         self.try_process_synced_frame()
@@ -412,14 +426,27 @@ class MoraiLive3Cam3DLabelerCSV:
 
         # 비차단 라이다 매칭+저장. 라이다 실패는 프레임을 버리지 않는다
         # (카메라/ego/object all-or-nothing 게이트는 위에서 이미 통과함).
+        # /lidar3D의 header.stamp는 /cam_front ref_ts와 클록 기준이 달라
+        # 스탬프 비교(find_closest)로는 항상 max_sync_gap을 초과해 실패한다.
+        # 따라서 스탬프 비교 없이 버퍼의 가장 최신 스캔을 그대로 사용한다.
         if self.save_lidar:
-            lidar_msg = find_closest(self.lidar_buffer, ref_ts, self.max_sync_gap)
-            if lidar_msg is not None:
+            if len(self.lidar_buffer) > 0:
+                lidar_ts, lidar_msg = self.lidar_buffer[-1]
+                offset = lidar_ts - ref_ts
+                self._lidar_gaps.append(abs(offset))
                 self.save_lidar_pointcloud(stem=stem, msg=lidar_msg)
+                rospy.loginfo_throttle(
+                    2.0,
+                    "lidar saved (stamp offset %+.3f s, not used for matching)",
+                    offset
+                )
             else:
-                rospy.logwarn_throttle(1.0,
-                    "lidar sync miss: frame=%06d (depth GT will skip this frame)",
-                    self.frame_idx)
+                self._lidar_miss += 1
+                rospy.logwarn_throttle(
+                    1.0,
+                    "lidar buffer empty: frame=%06d",
+                    self.frame_idx
+                )
 
         rows = self.make_label_rows(
             frame_id=self.frame_idx,
@@ -472,6 +499,26 @@ class MoraiLive3Cam3DLabelerCSV:
         )
 
         cv2.imwrite(img_path, img)
+
+    def _dump_lidar_stats(self):
+        if not self._lidar_gaps and not self._lidar_miss:
+            return
+
+        if self._lidar_gaps:
+            avg_gap = sum(self._lidar_gaps) / len(self._lidar_gaps)
+            max_gap = max(self._lidar_gaps)
+            rospy.loginfo(
+                "lidar stamp offset stats: n=%d avg=%.3f s max=%.3f s (clock mismatch, informational only)",
+                len(self._lidar_gaps),
+                avg_gap,
+                max_gap
+            )
+
+        if self._lidar_miss:
+            rospy.logwarn(
+                "lidar buffer was empty for %d frame(s)",
+                self._lidar_miss
+            )
 
     def save_lidar_pointcloud(self, stem, msg):
         field_names = [f.name for f in msg.fields]
