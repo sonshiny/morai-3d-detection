@@ -12,6 +12,9 @@ training_history.csv
 
 # 시각화 결과
 pred_vis*/
+inference_best_model_cuboid_soft025/
+verify_output/
+bad_jpegs_report.csv
 
 # wandb
 wandb/

@@ -4,7 +4,10 @@
 import os
 import re
 import csv
+import json
 import argparse
+import threading
+import shutil
 from collections import deque
 
 import cv2
@@ -13,6 +16,7 @@ import rospy
 
 from sensor_msgs.msg import CompressedImage, PointCloud2
 from sensor_msgs import point_cloud2
+from std_msgs.msg import String
 from morai_msgs.msg import EgoVehicleStatus, ObjectStatusList
 
 from morai_dataset import box_visible_in_any_camera
@@ -31,6 +35,9 @@ CAMERA_TOPICS = {
 REFERENCE_CAMERA_TOPIC = "/cam_front"
 
 LIDAR_TOPIC = "/lidar3D"
+
+DATASET_CONTROL_TOPIC = "/dataset_control"
+DATASET_STATUS_TOPIC = "/dataset_status"
 
 
 # =========================
@@ -240,28 +247,24 @@ def find_closest_with_ts(buffer, target_sec, max_gap):
 
 
 class MoraiLive3Cam3DLabelerCSV:
-    def __init__(self, dataset_dir, scenario_name, max_sync_gap=0.10, save_images=True, save_lidar=True):
-        self.dataset_dir = dataset_dir
-        self.scenario_name = scenario_name
+    def __init__(self, dataset_root, scenario_prefix="scen", scenario_digits=2,
+                 max_sync_gap=0.10, save_images=True, save_lidar=True,
+                 start_immediately=False):
+        self.dataset_root = dataset_root
+        self.scenario_prefix = scenario_prefix
+        self.scenario_digits = scenario_digits
+        self.dataset_dir = None
+        self.scenario_name = None
         self.max_sync_gap = max_sync_gap
         self.save_images = save_images
         self.save_lidar = save_lidar
 
-        self.img_root_dir = os.path.join(dataset_dir, "images")
-        self.csv_dir = os.path.join(dataset_dir, "labels_3d")
-        self.ego_pose_dir = os.path.join(dataset_dir, "ego_pose")
-        self.lidar_dir = os.path.join(dataset_dir, "lidar")
-
-        os.makedirs(self.img_root_dir, exist_ok=True)
-        os.makedirs(self.csv_dir, exist_ok=True)
-        os.makedirs(self.ego_pose_dir, exist_ok=True)
-        os.makedirs(self.lidar_dir, exist_ok=True)
-
+        self.img_root_dir = None
+        self.csv_dir = None
+        self.ego_pose_dir = None
+        self.lidar_dir = None
         self.camera_image_dirs = {}
-        for topic, cam_name in CAMERA_TOPICS.items():
-            cam_dir = os.path.join(self.img_root_dir, cam_name)
-            os.makedirs(cam_dir, exist_ok=True)
-            self.camera_image_dirs[topic] = cam_dir
+        self.recording = False
 
         self.ego_buffer = deque(maxlen=200)
         self.obj_buffer = deque(maxlen=200)
@@ -276,6 +279,9 @@ class MoraiLive3Cam3DLabelerCSV:
 
         self.frame_idx = 0
         self.last_processed_ref_ts = None
+        self.process_lock = threading.RLock()
+        self.current_start_payload = {}
+        self.status_pub = rospy.Publisher(DATASET_STATUS_TOPIC, String, queue_size=10, latch=True)
 
         rospy.Subscriber(
             "/Ego_topic",
@@ -308,12 +314,20 @@ class MoraiLive3Cam3DLabelerCSV:
             queue_size=2
         )
 
-        rospy.on_shutdown(self._dump_lidar_stats)
+        rospy.Subscriber(
+            DATASET_CONTROL_TOPIC,
+            String,
+            self.dataset_control_callback,
+            queue_size=10
+        )
+
+        rospy.on_shutdown(self._handle_shutdown)
 
         rospy.loginfo("MORAI live 3-camera 3D CSV labeler started")
-        rospy.loginfo("scenario       = %s", self.scenario_name)
         rospy.loginfo("target classes = vehicle + pedestrian")
-        rospy.loginfo("dataset_dir    = %s", self.dataset_dir)
+        rospy.loginfo("dataset_root   = %s", self.dataset_root)
+        rospy.loginfo("control topic  = %s", DATASET_CONTROL_TOPIC)
+        rospy.loginfo("status topic   = %s", DATASET_STATUS_TOPIC)
         rospy.loginfo("max_sync_gap   = %.3f sec", self.max_sync_gap)
         rospy.loginfo("save_images    = %s", self.save_images)
 
@@ -330,38 +344,230 @@ class MoraiLive3Cam3DLabelerCSV:
             MAX_RANGE_Z
         )
 
-    def ego_callback(self, msg):
-        ts = rospy.Time.now().to_sec()   # header.stamp는 카메라와 다른 시계라 신뢰 불가
-        self.ego_buffer.append((ts, msg))
+        if start_immediately:
+            self.start_scene({"command": "START_SCENE", "source": "start_immediately"})
 
-    def object_callback(self, msg):
-        ts = rospy.Time.now().to_sec()   # header.stamp는 카메라와 다른 시계라 신뢰 불가
-        self.obj_buffer.append((ts, msg))
+    def scene_index_from_name(self, scenario_name):
+        pattern = re.compile(rf"^{re.escape(self.scenario_prefix)}(\d+)$")
+        match = pattern.match(str(scenario_name or ""))
+        if not match:
+            return None
+        return int(match.group(1))
 
-    def camera_callback(self, img_msg, cam_topic):
-        ts = msg_time_or_now(img_msg)
-        self.camera_buffers[cam_topic].append((ts, img_msg))
+    def publish_status(self, event, extra=None):
+        payload = {
+            "event": event,
+            "dataset_root": self.dataset_root,
+            "scenario_name": self.scenario_name,
+            "scene_index": self.scene_index_from_name(self.scenario_name),
+            "dataset_dir": self.dataset_dir,
+            "recording": bool(self.recording),
+            "frame_count": int(self.frame_idx),
+            "stamp": rospy.Time.now().to_sec(),
+        }
+        if extra:
+            payload.update(extra)
 
-        # 진단(임시): 카메라 header.stamp가 rospy.Time.now()와 같은 시계 계열인지 확인용.
-        # diff가 작으면(<0.1s) ego/object의 now() 전환과 정합됨. 검증 후 제거 가능.
-        rospy.loginfo_throttle(
-            5.0,
-            "cam ref_ts=%.3f vs now=%.3f (diff %.3f)",
-            ts,
-            rospy.Time.now().to_sec(),
-            rospy.Time.now().to_sec() - ts
+        msg = String()
+        msg.data = json.dumps(payload, ensure_ascii=False, default=str)
+        self.status_pub.publish(msg)
+
+    def dataset_control_callback(self, msg):
+        try:
+            payload = json.loads(msg.data)
+        except Exception as exc:
+            rospy.logwarn("dataset control ignored: invalid JSON: %s", exc)
+            return
+
+        command = str(payload.get("command", "")).upper()
+
+        with self.process_lock:
+            if command == "START_SCENE":
+                self.start_scene(payload)
+            elif command == "STOP_SUCCESS":
+                self.stop_scene(result="success", payload=payload, write_meta=False)
+            elif command == "STOP_ACCIDENT":
+                self.stop_scene(result="accident", payload=payload, write_meta=True)
+            else:
+                rospy.logwarn("dataset control ignored: unknown command=%s", command)
+
+    def start_scene(self, payload):
+        if self.recording:
+            rospy.logwarn("START_SCENE received while recording; closing previous scene without meta")
+            self.stop_scene(result="interrupted_by_new_start", payload=payload, write_meta=False)
+
+        scenario_dir, scenario_name = create_next_scenario_dir(
+            dataset_root=self.dataset_root,
+            prefix=self.scenario_prefix,
+            digits=self.scenario_digits
         )
 
-        # 카메라 메시지가 들어올 때마다 현재 3개 카메라가 모두 모였는지 확인
-        self.try_process_synced_frame()
+        self.dataset_dir = scenario_dir
+        self.scenario_name = scenario_name
+        self.img_root_dir = os.path.join(scenario_dir, "images")
+        self.csv_dir = os.path.join(scenario_dir, "labels_3d")
+        self.ego_pose_dir = os.path.join(scenario_dir, "ego_pose")
+        self.lidar_dir = os.path.join(scenario_dir, "lidar")
+
+        os.makedirs(self.img_root_dir, exist_ok=True)
+        os.makedirs(self.csv_dir, exist_ok=True)
+        os.makedirs(self.ego_pose_dir, exist_ok=True)
+        os.makedirs(self.lidar_dir, exist_ok=True)
+
+        self.camera_image_dirs = {}
+        for topic, cam_name in CAMERA_TOPICS.items():
+            cam_dir = os.path.join(self.img_root_dir, cam_name)
+            os.makedirs(cam_dir, exist_ok=True)
+            self.camera_image_dirs[topic] = cam_dir
+
+        self.frame_idx = 0
+        self.last_processed_ref_ts = None
+        self._lidar_gaps = []
+        self._lidar_miss = 0
+        self.current_start_payload = dict(payload or {})
+        self.recording = True
+
+        rospy.loginfo("dataset scene started: %s", self.dataset_dir)
+        self.publish_status("SCENE_STARTED")
+
+    def stop_scene(self, result, payload, write_meta=False):
+        if not self.recording:
+            rospy.logwarn("STOP received while collector is IDLE: result=%s", result)
+            return
+
+        scene_dir = self.dataset_dir
+        frame_count = self.frame_idx
+        scenario_name = self.scenario_name
+        discard_scene = bool((payload or {}).get("discard_scene", False))
+        self.recording = False
+
+        if discard_scene:
+            shutil.rmtree(scene_dir, ignore_errors=True)
+            rospy.logwarn(
+                "dataset scene discarded: %s result=%s frames=%d reason=%s",
+                scene_dir,
+                result,
+                frame_count,
+                (payload or {}).get("discard_reason", "unspecified")
+            )
+        elif write_meta:
+            meta = {
+                "scene_outcome": result,
+                "success": False,
+                "frame_count": frame_count,
+                "scenario_name": scenario_name,
+                "dataset_dir": scene_dir,
+                "start_payload": self.current_start_payload,
+                "stop_payload": dict(payload or {}),
+            }
+            meta_path = os.path.join(scene_dir, "meta.json")
+            with open(meta_path, "w", encoding="utf-8") as f:
+                json.dump(meta, f, indent=2, ensure_ascii=False, default=str)
+            rospy.loginfo("dataset accident meta saved: %s", meta_path)
+
+        rospy.loginfo(
+            "dataset scene stopped: %s result=%s frames=%d meta=%s discarded=%s",
+            scene_dir,
+            result,
+            frame_count,
+            write_meta,
+            discard_scene
+        )
+        self.publish_status(
+            "SCENE_DISCARDED" if discard_scene else "SCENE_STOPPED",
+            {
+                "dataset_dir": scene_dir,
+                "scenario_name": scenario_name,
+                "scene_index": self.scene_index_from_name(scenario_name),
+                "result": result,
+                "frame_count": frame_count,
+                "write_meta": bool(write_meta and not discard_scene),
+                "discarded": discard_scene,
+                "discard_reason": (payload or {}).get("discard_reason"),
+            },
+        )
+
+        self._dump_lidar_stats()
+        self._lidar_gaps = []
+        self._lidar_miss = 0
+        self.dataset_dir = None
+        self.scenario_name = None
+        self.img_root_dir = None
+        self.csv_dir = None
+        self.ego_pose_dir = None
+        self.lidar_dir = None
+        self.camera_image_dirs = {}
+        self.current_start_payload = {}
+
+    def _handle_shutdown(self):
+        with self.process_lock:
+            if self.recording and self.dataset_dir:
+                scene_dir = self.dataset_dir
+                frame_count = self.frame_idx
+                self.recording = False
+                self._dump_lidar_stats()
+                shutil.rmtree(scene_dir, ignore_errors=True)
+                rospy.logwarn(
+                    "collector shutdown while recording; removed incomplete scene: %s frames=%d",
+                    scene_dir,
+                    frame_count
+                )
+                self.dataset_dir = None
+                self.scenario_name = None
+                self.img_root_dir = None
+                self.csv_dir = None
+                self.ego_pose_dir = None
+                self.lidar_dir = None
+                self.camera_image_dirs = {}
+                self.current_start_payload = {}
+                self._lidar_gaps = []
+                self._lidar_miss = 0
+                return
+
+            self._dump_lidar_stats()
+
+    def ego_callback(self, msg):
+        ts = rospy.Time.now().to_sec()   # 수신 시각 기준으로 카메라/Ego/Object 동기화
+        with self.process_lock:
+            self.ego_buffer.append((ts, msg))
+
+    def object_callback(self, msg):
+        ts = rospy.Time.now().to_sec()   # 수신 시각 기준으로 카메라/Ego/Object 동기화
+        with self.process_lock:
+            self.obj_buffer.append((ts, msg))
+
+    def camera_callback(self, img_msg, cam_topic):
+        ts = rospy.Time.now().to_sec()
+        header_ts = msg_time_or_now(img_msg)
+
+        rospy.loginfo_throttle(
+            5.0,
+            "cam header_ts=%.3f recv_ts=%.3f (diff %.3f, sync uses recv_ts)",
+            header_ts,
+            ts,
+            ts - header_ts
+        )
+
+        with self.process_lock:
+            self.camera_buffers[cam_topic].append((ts, img_msg))
+            if cam_topic == REFERENCE_CAMERA_TOPIC:
+                self._try_process_synced_frame_locked()
 
     def lidar_callback(self, msg):
         # 라이다는 프레임 트리거가 아니다. 버퍼에만 쌓고, 저장은
         # /cam_front가 트리거한 try_process_synced_frame에서 비차단으로 매칭한다.
-        ts = msg_time_or_now(msg)
-        self.lidar_buffer.append((ts, msg))
+        ts = rospy.Time.now().to_sec()
+        with self.process_lock:
+            self.lidar_buffer.append((ts, msg))
 
     def try_process_synced_frame(self):
+        with self.process_lock:
+            self._try_process_synced_frame_locked()
+
+    def _try_process_synced_frame_locked(self):
+        if not self.recording:
+            return
+
         ref_buffer = self.camera_buffers[REFERENCE_CAMERA_TOPIC]
 
         if not ref_buffer:
@@ -414,7 +620,8 @@ class MoraiLive3Cam3DLabelerCSV:
             )
             return
 
-        stem = f"live_{self.frame_idx:06d}"
+        frame_id = self.frame_idx
+        stem = f"live_{frame_id:06d}"
 
         if self.save_images:
             for topic, img_msg in synced_camera_msgs.items():
@@ -445,11 +652,11 @@ class MoraiLive3Cam3DLabelerCSV:
                 rospy.logwarn_throttle(
                     1.0,
                     "lidar buffer empty: frame=%06d",
-                    self.frame_idx
+                    frame_id
                 )
 
         rows = self.make_label_rows(
-            frame_id=self.frame_idx,
+            frame_id=frame_id,
             timestamp=ref_ts,
             ego_msg=ego_msg,
             obj_msg=obj_msg
@@ -457,7 +664,7 @@ class MoraiLive3Cam3DLabelerCSV:
 
         self.save_ego_pose(
             stem=stem,
-            frame_id=self.frame_idx,
+            frame_id=frame_id,
             timestamp=ref_ts,
             ego_msg=ego_msg,
         )
@@ -469,21 +676,21 @@ class MoraiLive3Cam3DLabelerCSV:
             writer.writerow(CSV_HEADER)
             writer.writerows(rows)
 
-        if self.frame_idx % 30 == 0:
+        if frame_id % 30 == 0:
             num_vehicle = sum(1 for r in rows if r[6] == "vehicle")
             num_ped = sum(1 for r in rows if r[6] == "pedestrian")
 
             rospy.loginfo(
                 "scenario %s | frame %06d | images: 3 | total: %d | vehicle: %d | pedestrian: %d",
                 self.scenario_name,
-                self.frame_idx,
+                frame_id,
                 len(rows),
                 num_vehicle,
                 num_ped
             )
 
         self.last_processed_ref_ts = ref_ts
-        self.frame_idx += 1
+        self.frame_idx = frame_id + 1
 
     def save_compressed_image(self, img_msg, topic, stem):
         np_arr = np.frombuffer(img_msg.data, np.uint8)
@@ -706,7 +913,7 @@ def main():
 
     parser.add_argument(
         "--dataset_root",
-        default="/data/dataset",
+        default="/home/jang/dataset",
         help="scen01, scen02가 생성될 상위 dataset 폴더"
     )
 
@@ -742,24 +949,24 @@ def main():
         help="라이다 포인트클라우드 저장을 끈다 (기본은 저장 on)"
     )
 
+    parser.add_argument(
+        "--start_immediately",
+        action="store_true",
+        help="제어 토픽을 기다리지 않고 기존 방식처럼 실행 즉시 새 scen 저장을 시작"
+    )
+
     args, _ = parser.parse_known_args()
 
     rospy.init_node("morai_live_3cam_3d_labeler_csv", anonymous=False)
 
-    scenario_dir, scenario_name = create_next_scenario_dir(
-        dataset_root=args.dataset_root,
-        prefix=args.scenario_prefix,
-        digits=args.scenario_digits
-    )
-
-    rospy.loginfo("new scenario folder = %s", scenario_dir)
-
     MoraiLive3Cam3DLabelerCSV(
-        dataset_dir=scenario_dir,
-        scenario_name=scenario_name,
+        dataset_root=args.dataset_root,
+        scenario_prefix=args.scenario_prefix,
+        scenario_digits=args.scenario_digits,
         max_sync_gap=args.max_sync_gap,
         save_images=not args.no_save_images,
-        save_lidar=not args.no_save_lidar
+        save_lidar=not args.no_save_lidar,
+        start_immediately=args.start_immediately
     )
 
     rospy.spin()

@@ -122,7 +122,7 @@ class MoraiDataset(Dataset):
 
     def __init__(
         self,
-        dataset_root='/data/dataset',
+        dataset_root='/home/jang/dataset',
         split='train',
         val_scenarios=None,
         filter_visible=True,
@@ -293,8 +293,8 @@ def morai_collate_fn(batch):
 
 
 if __name__ == "__main__":
-    ds_tr = MoraiDataset(dataset_root='/data/dataset', split='train')
-    ds_va = MoraiDataset(dataset_root='/data/dataset', split='val')
+    ds_tr = MoraiDataset(dataset_root='/home/jang/dataset', split='train')
+    ds_va = MoraiDataset(dataset_root='/home/jang/dataset', split='val')
 
     loader = DataLoader(ds_tr, batch_size=2, shuffle=True,
                         collate_fn=morai_collate_fn, num_workers=0)
