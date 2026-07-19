@@ -3,6 +3,8 @@ import math
 import os
 import csv
 
+import numpy as np
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -12,7 +14,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from morai_dataset import IMG_HEIGHT, IMG_WIDTH, MoraiDataset, morai_collate_fn
+from morai_dataset import (
+    IMG_HEIGHT,
+    IMG_WIDTH,
+    MoraiDataset,
+    MoraiTemporalDataset,
+    morai_collate_fn,
+    morai_temporal_collate_fn,
+    StreamingGroupSampler,
+)
 from resnet_fpn import ResNet50_FPN, Bottleneck
 from anchor_generator import NUM_ANCHORS, generate_anchors_full
 from decoder import FFNDecoder
@@ -21,6 +31,7 @@ from make_kmeans import (
     DEFAULT_FULL_OUT,
     DEFAULT_K,
     DEFAULT_META_OUT,
+    DEFAULT_VAL_SCENARIOS,
     DEFAULT_XY_OUT,
     ensure_kmeans_files,
 )
@@ -401,6 +412,102 @@ class CameraFeatureFusion(nn.Module):
         return (camera_features * weights.unsqueeze(-1)).sum(dim=0)
 
 
+class GridMask(nn.Module):
+    """
+    SparseDrive 공식 GridMask(models/grid_mask.py) 축약 이식.
+    학습 시 prob 확률로 이미지에 격자 마스크를 곱한다 (mode=1: 격자 밴드만 0으로).
+    공식 config: use_h/use_w=True, rotate=1(→회전 없음), offset=False, ratio=0.5,
+    mode=1, prob=0.7. 배치 전체에 같은 마스크를 적용한다(공식과 동일).
+    """
+    def __init__(self, use_h=True, use_w=True, ratio=0.5, mode=1, prob=0.7):
+        super().__init__()
+        self.use_h = use_h
+        self.use_w = use_w
+        self.ratio = ratio
+        self.mode = mode
+        self.prob = prob
+
+    def forward(self, x):
+        # x: [N, C, H, W]
+        if (not self.training) or np.random.rand() > self.prob:
+            return x
+        n, c, h, w = x.shape
+        hh, ww = int(1.5 * h), int(1.5 * w)
+        d = np.random.randint(2, h)
+        band = min(max(int(d * self.ratio + 0.5), 1), d - 1)
+        mask = np.ones((hh, ww), np.float32)
+        st_h = np.random.randint(d)
+        st_w = np.random.randint(d)
+        if self.use_h:
+            for i in range(hh // d):
+                s = d * i + st_h
+                t = min(s + band, hh)
+                mask[s:t, :] = 0.0
+        if self.use_w:
+            for i in range(ww // d):
+                s = d * i + st_w
+                t = min(s + band, ww)
+                mask[:, s:t] = 0.0
+        mask = mask[(hh - h) // 2:(hh - h) // 2 + h,
+                    (ww - w) // 2:(ww - w) // 2 + w]
+        mask_t = torch.from_numpy(mask).to(device=x.device, dtype=x.dtype)
+        if self.mode == 1:
+            mask_t = 1.0 - mask_t
+        return x * mask_t.view(1, 1, h, w)
+
+
+class DenseDepthNet(nn.Module):
+    """
+    SparseDrive 공식 DenseDepthNet(models/blocks.py:264-322) 이식.
+    FPN 앞 num_depth_layers개 레벨(stride 4/8/16)에 1x1 conv를 얹어 dense depth를
+    회귀하는 학습 전용 보조 태스크. depth = exp(conv(feat)) * focal / equal_focal.
+    Loss: GT>0 픽셀만 masked L1, sum / max(1, n_pts * n_levels) * loss_weight (fp32).
+    추론 시에는 호출하지 않는다(비용 0).
+    """
+    def __init__(self, embed_dims=256, num_depth_layers=3,
+                 equal_focal=100.0, max_depth=60.0, loss_weight=0.2):
+        super().__init__()
+        self.equal_focal = equal_focal
+        self.max_depth = max_depth
+        self.loss_weight = loss_weight
+        self.num_depth_layers = num_depth_layers
+        self.depth_layers = nn.ModuleList([
+            nn.Conv2d(embed_dims, 1, kernel_size=1) for _ in range(num_depth_layers)
+        ])
+
+    def forward(self, feature_maps, focal):
+        """
+        feature_maps: list of [N_cam, C, H, W] (앞 num_depth_layers개 사용)
+        focal       : [N_cam] (리사이즈 반영 fx)
+        반환        : list of [N_cam, H, W] depth (m)
+        """
+        depths = []
+        for i, feat in enumerate(feature_maps[: self.num_depth_layers]):
+            depth = self.depth_layers[i](feat.float()).exp()          # [N,1,H,W]
+            depth = depth * (focal.float() / self.equal_focal).view(-1, 1, 1, 1)
+            depths.append(depth.squeeze(1))
+        return depths
+
+    def loss(self, depth_preds, gt_depths):
+        """
+        depth_preds: list of [B, N_cam, H, W]
+        gt_depths  : list of [B, N_cam, H, W]  (빈 픽셀 = -1, 유효 depth > 0)
+        """
+        loss = 0.0
+        for pred, gt in zip(depth_preds, gt_depths):
+            pred = pred.reshape(-1)
+            gt = gt.to(device=pred.device).reshape(-1)
+            fg_mask = torch.logical_and(gt > 0.0, torch.logical_not(torch.isnan(pred)))
+            gt = gt[fg_mask]
+            pred = pred[fg_mask]
+            pred = torch.clip(pred, 0.0, self.max_depth)
+            with torch.cuda.amp.autocast(enabled=False):
+                error = torch.abs(pred.float() - gt.float()).sum()
+                _loss = error / max(1.0, len(gt) * len(depth_preds)) * self.loss_weight
+            loss = loss + _loss
+        return loss
+
+
 def normalize_box_sincos(box):
     sin_cos = box[..., 6:8]
     norm = sin_cos.norm(dim=-1, keepdim=True).clamp(min=1e-6)
@@ -425,11 +532,15 @@ def rot2d_from_yaw(yaw):
     ], dim=-2)
 
 
-def align_anchor_prev_to_current(prev_anchor, prev_ego_pose, cur_ego_pose):
+def align_anchor_prev_to_current(prev_anchor, prev_ego_pose, cur_ego_pose, dt=None):
     """
     Convert anchors from previous ego frame into current ego frame.
     ego_pose: [timestamp, ego_x, ego_y, ego_z, ego_yaw_rad, valid]
     Anchor convention: x forward, y left, z up in ego/body frame.
+
+    dt(초, = t_cur - t_prev)가 주어지면 공식 SparseDrive anchor_projection처럼
+    rigid 변환 전에 prev 프레임에서 velocity 모션 보상(center += v * dt)을 적용한다.
+    (공식: center = center - vel * (t_prev - t_cur) 후 T_temp2cur 적용 — 동일 수식)
     """
     if (
         prev_ego_pose is None or cur_ego_pose is None or
@@ -456,10 +567,18 @@ def align_anchor_prev_to_current(prev_anchor, prev_ego_pose, cur_ego_pose):
 
     aligned = prev_anchor.clone()
 
-    xy_global = (R_prev @ prev_anchor[:, 0:2].unsqueeze(-1)).squeeze(-1) + prev_t
+    prev_xy = prev_anchor[:, 0:2]
+    prev_zc = prev_anchor[:, 2]
+    if dt is not None and prev_anchor.shape[-1] >= 10:
+        dt_t = torch.as_tensor(dt, device=device, dtype=dtype)
+        prev_xy = prev_xy + prev_anchor[:, 8:10] * dt_t
+        if prev_anchor.shape[-1] >= 11:
+            prev_zc = prev_zc + prev_anchor[:, 10] * dt_t
+
+    xy_global = (R_prev @ prev_xy.unsqueeze(-1)).squeeze(-1) + prev_t
     xy_cur = (R_cur_inv @ (xy_global - cur_t).unsqueeze(-1)).squeeze(-1)
     aligned[:, 0:2] = xy_cur
-    aligned[:, 2] = prev_anchor[:, 2] + prev_z - cur_z
+    aligned[:, 2] = prev_zc + prev_z - cur_z
 
     yaw_prev_box = torch.atan2(prev_anchor[:, 6], prev_anchor[:, 7])
     yaw_cur_box = yaw_prev_box + prev_yaw - cur_yaw
@@ -510,6 +629,14 @@ class SparseRefinementDecoderLayer(nn.Module):
                 dropout=dropout,
                 batch_first=True,
             )
+            # A1-b: temporal fusion을 0에서 서서히 여는 learnable scalar gate(ReZero식).
+            # 0-init 이라 warm-start 직후(gate=0)엔 temp_out 기여가 0 → A0 출력과 동일.
+            # 학습되며 gate가 열려 temporal이 점진 반영. A0 checkpoint엔 이 키가 없어
+            # filtered warm-start가 0-init을 그대로 유지한다.
+            self.temp_gate = nn.Parameter(torch.zeros(1))
+            # A1-a: sampler/bank는 유지하되 temp_gnn fusion만 완전히 끄는 런타임 스위치.
+            # 학습 파라미터 아님(외부에서 set). 기본 True(=gated fusion 사용).
+            self.temp_gnn_enabled = True
         self.attn_norm = nn.LayerNorm(hidden_dim)
         self.self_attn = nn.MultiheadAttention(
             hidden_dim,
@@ -550,6 +677,7 @@ class SparseRefinementDecoderLayer(nn.Module):
     ):
         if (
             self.use_temp_gnn and
+            self.temp_gnn_enabled and
             temp_instance_feature is not None and
             temp_anchor is not None and
             temp_instance_feature.numel() > 0 and
@@ -562,7 +690,8 @@ class SparseRefinementDecoderLayer(nn.Module):
                 temp_instance_feature + temp_anchor_embed
             ).unsqueeze(0)
             temp_out, _ = self.temp_attn(q_temp, kv_temp, kv_temp, need_weights=False)
-            instance_feature = instance_feature + self.dropout(temp_out.squeeze(0))
+            # 0-init gate: gate=0 이면 A0 출력 보존, 학습되며 서서히 temporal 반영.
+            instance_feature = instance_feature + self.temp_gate * self.dropout(temp_out.squeeze(0))
 
         q = self.attn_norm(instance_feature).unsqueeze(0)
         attn_out, _ = self.self_attn(q, q, q, need_weights=False)
@@ -599,6 +728,11 @@ class AutoNavModel(nn.Module):
         use_temporal_memory=True,
         num_temp_instances=600,
         temporal_confidence_decay=0.6,
+        max_time_interval=2.0,
+        # 기본 False: 구 스크립트(eval_distance/inference)의 v10 strict 로드 호환.
+        # train.py(v11)에서 명시적으로 켠다.
+        use_grid_mask=False,
+        use_dense_depth=False,
     ):
         super().__init__()
         anchors_full = generate_anchors_full()
@@ -609,6 +743,14 @@ class AutoNavModel(nn.Module):
         self.use_temporal_memory = use_temporal_memory
         self.num_temp_instances = min(int(num_temp_instances), NUM_ANCHORS)
         self.temporal_confidence_decay = temporal_confidence_decay
+        self.max_time_interval = float(max_time_interval)
+        self.use_grid_mask = use_grid_mask
+        self.grid_mask = GridMask(prob=0.7)
+        self.use_dense_depth = use_dense_depth
+        self.depth_net = DenseDepthNet(
+            embed_dims=256, num_depth_layers=3,
+            equal_focal=100.0, max_depth=60.0, loss_weight=0.2,
+        ) if use_dense_depth else None
         self.backbone = ResNet50_FPN(Bottleneck, pretrained=pretrained_backbone)
         self.decoder_layers = nn.ModuleList([
             SparseRefinementDecoderLayer(
@@ -637,11 +779,12 @@ class AutoNavModel(nn.Module):
                     param.requires_grad_(False)
 
     def reset_temporal_memory(self):
-        self._temporal_context = None
-        self._cached_feature = None
-        self._cached_anchor = None
-        self._cached_confidence = None
-        self._cached_ego_pose = None
+        """배치 슬롯별 instance bank 상태 초기화. 슬롯 수는 첫 forward에서 확정."""
+        self._bank = None   # list[dict|None] 길이 B; dict keys: feature/anchor/confidence/ego_pose/context
+
+    def _ensure_bank(self, batch_size):
+        if self._bank is None or len(self._bank) != batch_size:
+            self._bank = [None] * batch_size
 
     @staticmethod
     def _context_from_stem(stem):
@@ -650,67 +793,95 @@ class AutoNavModel(nn.Module):
         return str(stem).split('/')[0]
 
     @torch.no_grad()
-    def _get_temporal_memory(self, context, cur_ego_pose, device, dtype):
+    def _get_temporal_memory(self, slot, context, cur_ego_pose, cur_timestamp, device, dtype):
+        """
+        공식 InstanceBank.get 대응 (배치 슬롯별).
+        유효 조건: 같은 시나리오(context) + 0 < dt <= max_time_interval + ego valid.
+        스트리밍 샘플러에서 같은 슬롯의 연속 청크(같은 시나리오, dt~0.1s)는 전파가
+        유지되고, 다른 청크/시나리오는 dt 또는 context에서 자동 리셋된다.
+        dt는 반드시 float64 timestamp(cur_timestamp)로 계산한다 — ego_pose 텐서는
+        float32라 유닉스 시각(1.7e9)에서 분해능이 ~256s로 무너져 dt가 0이 된다.
+        반환: (temp_feature[600,C], aligned_anchor[600,11], prev_confidence[600]) 또는 (None,None,None)
+        """
+        entry = self._bank[slot] if (self.use_temporal_memory and self._bank is not None) else None
         if (
-            not self.use_temporal_memory or
-            context is None or
-            self._temporal_context != context or
-            self._cached_feature is None or
-            self._cached_anchor is None or
-            self._cached_ego_pose is None
+            entry is None or context is None or entry["context"] != context or
+            cur_ego_pose is None or cur_ego_pose.numel() < 6 or cur_ego_pose[-1] <= 0.5 or
+            cur_timestamp is None
         ):
-            if context is not None and self._temporal_context != context:
-                self.reset_temporal_memory()
-            return None, None
+            if self._bank is not None and entry is not None and entry["context"] != context:
+                self._bank[slot] = None
+            return None, None, None
 
-        if cur_ego_pose is None or cur_ego_pose.numel() < 6 or cur_ego_pose[-1] <= 0.5:
-            return None, None
+        dt = float(cur_timestamp) - float(entry["timestamp"])
+        if not (0.0 < dt <= self.max_time_interval):
+            self._bank[slot] = None
+            return None, None, None
 
-        temp_feature = self._cached_feature.to(device=device, dtype=dtype)
-        prev_anchor = self._cached_anchor.to(device=device, dtype=dtype)
-        prev_ego_pose = self._cached_ego_pose.to(device=device, dtype=dtype)
+        temp_feature = entry["feature"].to(device=device, dtype=dtype)
+        prev_anchor = entry["anchor"].to(device=device, dtype=dtype)
+        prev_ego_pose = entry["ego_pose"].to(device=device, dtype=dtype)
         aligned_anchor = align_anchor_prev_to_current(
             prev_anchor,
             prev_ego_pose,
             cur_ego_pose.to(device=device, dtype=dtype),
+            dt=dt,
         )
         if aligned_anchor is None:
-            return None, None
-        return temp_feature, aligned_anchor
+            self._bank[slot] = None
+            return None, None, None
+        prev_conf = entry["confidence"].to(device=device)
+        return temp_feature, aligned_anchor, prev_conf
 
     @torch.no_grad()
-    def _update_temporal_memory(
+    def _cache_temporal_memory(
         self,
+        slot,
         instance_feature,
         anchor,
         det_cls,
-        det_quality,
         context,
         cur_ego_pose,
+        cur_timestamp,
+        prev_confidence,
+        temporal_active,
     ):
+        """
+        공식 InstanceBank.cache 대응 (배치 슬롯별).
+        - confidence = 최종 layer cls sigmoid max (공식과 동일하게 cls만 사용)
+        - temporal 전파가 있었으면 working set 앞 num_temp 자리(=전파 인스턴스)의
+          confidence를 max(prev * decay, new)로 융합
+        - 900개 중 top-600을 detach해 저장 (프레임 간 gradient 차단)
+        """
         if (
             not self.use_temporal_memory or
             context is None or
             self.num_temp_instances <= 0 or
             cur_ego_pose is None or
             cur_ego_pose.numel() < 6 or
-            cur_ego_pose[-1] <= 0.5
+            cur_ego_pose[-1] <= 0.5 or
+            cur_timestamp is None
         ):
             return
 
-        probs = det_cls.detach().float().sigmoid()
-        confidence = probs.max(dim=-1).values
-        if det_quality is not None:
-            centerness = quality_centerness(det_quality.detach().float()).view(-1)
-            confidence = confidence * torch.sigmoid(centerness)
+        confidence = det_cls.detach().float().sigmoid().max(dim=-1).values   # [900]
+        if temporal_active and prev_confidence is not None:
+            n_temp = self.num_temp_instances
+            confidence[:n_temp] = torch.maximum(
+                prev_confidence.float() * self.temporal_confidence_decay,
+                confidence[:n_temp],
+            )
 
         topk = min(self.num_temp_instances, confidence.shape[0])
-        _, indices = torch.topk(confidence, k=topk, largest=True)
-        self._temporal_context = context
-        self._cached_feature = instance_feature.detach()[indices].cpu()
-        self._cached_anchor = anchor.detach()[indices].cpu()
-        self._cached_confidence = confidence.detach()[indices].cpu()
-        self._cached_ego_pose = cur_ego_pose.detach().cpu()
+        top_conf, indices = torch.topk(confidence, k=topk, largest=True)
+        self._bank[slot] = {
+            "feature": instance_feature.detach()[indices].float(),
+            "anchor": anchor.detach()[indices].float(),
+            "confidence": top_conf,
+            "ego_pose": cur_ego_pose.detach().float(),
+            "timestamp": float(cur_timestamp),   # float64 유지 (dt 정밀도)
+            "context": context,
+        }
 
     def forward(
         self,
@@ -719,17 +890,34 @@ class AutoNavModel(nn.Module):
         extrinsics,
         stems=None,
         ego_poses=None,
+        focal=None,
+        timestamps=None,
         return_intermediate=False,
     ):
         """
         images     : [B, 3, 3, H, W]
         intrinsics : [B, 3, 3, 3] resized-input coordinate system
         extrinsics : [B, 3, 4, 4]
-        반환       : dict with final and per-decoder outputs
+        focal      : [B, 3] 리사이즈 반영 fx (dense depth 보조 태스크용, 학습 시만 사용)
+        timestamps : [B] float64 (temporal dt 계산용 — ego_pose의 float32 ts는
+                     유닉스 시각에서 정밀도 부족. 미지정 시 ego_pose[0]로 fallback)
+        반환       : dict with final and per-decoder outputs (+ 'depth_pred' 학습 시)
+
+        Temporal(공식 SparseDrive instance bank semantics, 배치 슬롯별):
+          layer0(single-frame) → update: temporal 600개가 현재 900개 중
+          confidence 하위 600개를 교체(top-300 fresh만 유지) → layer1..5(temp_gnn
+          cross-attn, K/V=전파 인스턴스) → cache: top-600 저장(+confidence decay 융합).
+          배치 position b ↔ bank slot b 매핑은 StreamingGroupSampler가 보장한다.
         """
         B = images.shape[0]
         image_h = images.shape[-2]
         image_w = images.shape[-1]
+        self._ensure_bank(B)
+
+        # GridMask (학습 시만; 공식은 [B*N,C,H,W]에 배치 공통 마스크 적용)
+        if self.use_grid_mask and self.training:
+            flat = images.flatten(0, 1)                     # [B*3, 3, H, W]
+            images = self.grid_mask(flat).view_as(images) if flat.numel() else images
 
         # 배치별 출력 누적
         batch_det_classes = []
@@ -738,27 +926,48 @@ class AutoNavModel(nn.Module):
         batch_all_classes = []
         batch_all_boxes = []
         batch_all_quality = []
+        depth_preds_per_level = None
+
+        n_fresh = NUM_ANCHORS - self.num_temp_instances     # temporal 시 유지할 fresh 수
 
         for b in range(B):
             context = self._context_from_stem(stems[b]) if stems is not None else None
             cam_imgs = images[b]                            # [3, 3, H, W]
             all_features = self.backbone(cam_imgs)          # list of [3, C, H, W]
 
+            # dense depth 보조 태스크 (학습 시만, stride 4/8/16 레벨)
+            if self.use_dense_depth and self.training and focal is not None:
+                depths_b = self.depth_net(all_features, focal[b])
+                if depth_preds_per_level is None:
+                    depth_preds_per_level = [[] for _ in range(len(depths_b))]
+                for li, d in enumerate(depths_b):
+                    depth_preds_per_level[li].append(d)
+
             cur_ego_pose = ego_poses[b] if ego_poses is not None else None
+            if timestamps is not None:
+                cur_ts = float(timestamps[b].item())
+            elif cur_ego_pose is not None and cur_ego_pose.numel() >= 1:
+                cur_ts = float(cur_ego_pose[0].item())   # fallback (float32 정밀도 한계)
+            else:
+                cur_ts = None
             det_feat = self.instance_feature
             det_box = self.det_anchors_full
-            temp_feat, temp_box = self._get_temporal_memory(
+            temp_feat, temp_box, prev_conf = self._get_temporal_memory(
+                b,
                 context,
                 cur_ego_pose,
+                cur_ts,
                 det_feat.device,
                 det_feat.dtype,
             )
+            temporal_active = temp_feat is not None
+
             det_cls = None
             det_quality = None
             layer_classes = []
             layer_boxes = []
             layer_quality = []
-            for layer in self.decoder_layers:
+            for layer_idx, layer in enumerate(self.decoder_layers):
                 det_feat, det_box, det_cls, det_quality = layer(
                     det_feat,
                     det_box,
@@ -774,19 +983,32 @@ class AutoNavModel(nn.Module):
                 layer_boxes.append(det_box)
                 layer_quality.append(det_quality)
 
+                # 공식 InstanceBank.update: single-frame decoder(layer0) 직후
+                # temporal 600개가 confidence 하위 600개를 교체 (top-n_fresh만 유지)
+                if layer_idx == 0 and temporal_active:
+                    conf0 = det_cls.detach().float().sigmoid().max(dim=-1).values   # [900]
+                    _, fresh_idx = torch.topk(conf0, k=n_fresh, largest=True)
+                    det_feat = torch.cat(
+                        [temp_feat.to(det_feat.dtype), det_feat[fresh_idx]], dim=0)
+                    det_box = torch.cat(
+                        [temp_box.to(det_box.dtype), det_box[fresh_idx]], dim=0)
+
             batch_det_classes.append(det_cls)
             batch_det_boxes.append(det_box)
             batch_det_quality.append(det_quality)
             batch_all_classes.append(torch.stack(layer_classes))
             batch_all_boxes.append(torch.stack(layer_boxes))
             batch_all_quality.append(torch.stack(layer_quality))
-            self._update_temporal_memory(
+            self._cache_temporal_memory(
+                b,
                 det_feat,
                 det_box,
                 det_cls,
-                det_quality,
                 context,
                 cur_ego_pose,
+                cur_ts,
+                prev_conf,
+                temporal_active,
             )
 
         output = {
@@ -797,6 +1019,10 @@ class AutoNavModel(nn.Module):
             'all_det_box': torch.stack(batch_all_boxes),
             'all_det_quality': torch.stack(batch_all_quality),
         }
+        if depth_preds_per_level is not None:
+            output['depth_pred'] = [
+                torch.stack(level_list) for level_list in depth_preds_per_level
+            ]                                                # list of [B, 3, H, W]
         if return_intermediate:
             return output
         return output
@@ -1278,21 +1504,171 @@ def compute_auxiliary_detection_loss(model_out, batch, criterion, device, aux_we
     )
 
 
+def load_v10_weights(
+    model,
+    ckpt_path,
+    verbose=True,
+    load_anchor=False,
+    reinit_instance_feature=False,
+    zero_reg_branch6=True,
+):
+    """
+    v10 단일프레임 체크포인트(best_model.pth, 순수 state_dict)를 v11 temporal 모델로
+    전이한다. MIGRATION_PLAN §5 규칙 (Stage A0 진단 후 개정):
+      - 로드   : backbone, deformable_agg, self_attn/norms/ffn, cls_branch,
+                 quality_branch, reg_branch[0-4](offset 생성 앞단), instance_feature
+      - 로드안함(zero-init): reg_branch.6.{weight,bias} **전체**.
+                 앵커를 신규 K-means로 재생성했으므로 v10이 옛 앵커 기준으로 학습한
+                 최종 offset은 무효다(Stage A0 진단: 예측 box가 GT에서 6~10m 이탈 →
+                 매칭 불안정 → cls confidence 붕괴). anchor에서 refine을 다시 시작하도록
+                 마지막 Linear를 0으로 초기화한다(decoder.py 원래 관례와 동일).
+      - 스킵(재초기화): temp_*(layer1-5, temporal off로 학습된 적 없음),
+                 det_anchors_full(신규 K-means 앵커를 buffer로 유지 — 덮어쓰면 안 됨)
+      - 신규   : depth_net.*(v10에 없음, 새 init 유지)
+    반환: dict(loaded, skipped_rule, skipped_shape, missing) 키 리스트.
+    """
+    ckpt = torch.load(ckpt_path, map_location="cpu")
+    src = ckpt["model_state"] if (isinstance(ckpt, dict) and "model_state" in ckpt) else ckpt
+
+    model_sd = model.state_dict()
+    new_sd = {}
+    loaded, skipped_rule, skipped_shape, missing = [], [], [], []
+
+    def skip_reason(k):
+        if k == "det_anchors_full" and not load_anchor:
+            return "anchor(신규 kmeans 유지)"
+        if k == "instance_feature" and reinit_instance_feature:
+            return "instance_feature(reinit for new anchor)"
+        if ".temp_" in k:
+            return "temp_*(재초기화)"
+        return None
+
+    for k, v in model_sd.items():
+        reason = skip_reason(k)
+        if reason is not None:
+            new_sd[k] = v                      # model init 유지
+            skipped_rule.append((k, reason))
+        elif k in src and src[k].shape == v.shape:
+            new_sd[k] = src[k].clone()         # 전이
+            loaded.append(k)
+        elif k in src:
+            new_sd[k] = v
+            skipped_shape.append((k, tuple(src[k].shape), tuple(v.shape)))
+        else:
+            new_sd[k] = v                      # 신규(depth_net 등)
+            missing.append(k)
+
+    # reg_branch 마지막 Linear(index 6) 전체 zero-init (weight+bias 전부).
+    # loaded 목록에서 제거하고 재초기화 사유로 기록.
+    n_reg_zeroed = 0
+    for k in list(new_sd.keys()):
+        if k.endswith("det_decoder.reg_branch.6.weight"):
+            new_sd[k] = torch.zeros_like(new_sd[k]); n_reg_zeroed += 1
+            if k in loaded:
+                loaded.remove(k); skipped_rule.append((k, "reg_branch.6(anchor재refine 위해 zero)"))
+        elif k.endswith("det_decoder.reg_branch.6.bias"):
+            new_sd[k] = torch.zeros_like(new_sd[k])
+            if k in loaded:
+                loaded.remove(k); skipped_rule.append((k, "reg_branch.6(anchor재refine 위해 zero)"))
+
+    if not zero_reg_branch6:
+        for k in list(new_sd.keys()):
+            if (
+                k.endswith("det_decoder.reg_branch.6.weight")
+                or k.endswith("det_decoder.reg_branch.6.bias")
+            ):
+                if k in src and src[k].shape == new_sd[k].shape:
+                    new_sd[k] = src[k].clone()
+        n_reg_zeroed = 0
+
+    model.load_state_dict(new_sd)
+
+    if verbose:
+        print(f"   options: load_anchor={load_anchor}, "
+              f"reinit_instance_feature={reinit_instance_feature}, "
+              f"zero_reg_branch6={zero_reg_branch6}")
+        print(f"[전이] v10→v11 from {ckpt_path}")
+        print(f"   로드 {len(loaded)} | 스킵(규칙) {len(skipped_rule)} "
+              f"| 스킵(shape불일치) {len(skipped_shape)} | 신규 {len(missing)}")
+        print(f"   reg_branch.6 전체 zero-init: {n_reg_zeroed}개 layer (anchor에서 refine 재시작)")
+        if skipped_rule:
+            from collections import Counter
+            rc = Counter(r for _, r in skipped_rule)
+            print(f"   스킵(규칙) 내역: {dict(rc)}")
+        if skipped_shape:
+            print(f"   ⚠️ shape 불일치 스킵: {skipped_shape[:3]}")
+        print(f"   신규(새 init) 예: {missing[:4]}")
+    return {"loaded": loaded, "skipped_rule": skipped_rule,
+            "skipped_shape": skipped_shape, "missing": missing}
+
+
+def build_transfer_param_groups(
+    model, base_lr=2e-4,
+    backbone_mult=0.1, loaded_mult=0.5, new_mult=1.0,
+    wd_backbone=1e-3, wd_other=1e-2,
+):
+    """
+    v11 전이학습용 3단 옵티마이저 그룹 (MIGRATION_PLAN §5/§6):
+      backbone (×0.1)          : 도메인 적응 완료 — 미세조정
+      loaded   (×0.5)          : v10에서 전이된 디코더 공통부 + instance_feature
+      new      (×1.0)          : 신규/재초기화 — depth_net, temp_*, reg_branch.6(velocity)
+    reg_branch.6은 텐서 단위라 velocity 행만 분리 못하므로 마지막 Linear 전체를 new로.
+    """
+    def classify(name):
+        if name.startswith("backbone."):
+            return "backbone"
+        if (name.startswith("depth_net.") or ".temp_" in name or
+                "det_decoder.reg_branch.6." in name):
+            return "new"
+        return "loaded"
+
+    buckets = {"backbone": [], "loaded": [], "new": []}
+    names = {"backbone": [], "loaded": [], "new": []}
+    for name, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        g = classify(name)
+        buckets[g].append(p)
+        names[g].append(name)
+
+    groups = [
+        {"params": buckets["backbone"], "lr": base_lr * backbone_mult, "weight_decay": wd_backbone},
+        {"params": buckets["loaded"],   "lr": base_lr * loaded_mult,   "weight_decay": wd_other},
+        {"params": buckets["new"],      "lr": base_lr * new_mult,      "weight_decay": wd_other},
+    ]
+    return groups, names
+
+
 def count_ego_pose_files(dataset):
     total = len(dataset.items)
     count = 0
-    for scen_dir, stem in dataset.items:
-        pose_path = os.path.join(scen_dir, 'ego_pose', f"{stem}.csv")
-        if os.path.isfile(pose_path):
-            count += 1
+    for item in dataset.items:
+        if isinstance(item, dict):
+            scen_name = item.get('scen_name')
+            stem = item.get('stem')
+            if (
+                hasattr(dataset, 'scene_infos') and
+                scen_name in dataset.scene_infos and
+                stem in dataset.scene_infos[scen_name] and
+                'T_ego2global' in dataset.scene_infos[scen_name][stem]
+            ):
+                count += 1
+        else:
+            scen_dir, stem = item
+            pose_path = os.path.join(scen_dir, 'ego_pose', f"{stem}.csv")
+            if os.path.isfile(pose_path):
+                count += 1
     return count, total
 
 
 @torch.no_grad()
-def validate(model, loader, criterion, device, compute_metric=False, recall_thr=2.0):
+def validate(model, loader, criterion, device, compute_metric=False, recall_thr=2.0,
+             max_frames=0):
     """
     val set 전체에 대해 평균 detection loss를 계산하고,
     compute_metric=True면 score/class-aware Precision/Recall도 계산.
+    max_frames>0이면 val_loader 앞쪽에서 그만큼의 프레임만 처리한다(fast 실험용
+    subsample). val_loader는 shuffle=False라 항상 동일한 앞부분을 사용 → 비교 가능.
     반환: (val_loss, metrics_or_None)
     """
     model.eval()
@@ -1301,7 +1677,7 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
     loss_sum = 0.0
     n_batches = 0
     main_score_threshold = 0.05
-    metric_score_thresholds = (main_score_threshold, 0.10, 0.15, 0.25)
+    metric_score_thresholds = (0.01, 0.03, main_score_threshold, 0.10, 0.15, 0.25)
     metric_modes = {
         'calibrated': (True, 1.0),      # foreground * quality
         'softcalibrated': (True, 0.5),  # foreground * sqrt(quality)
@@ -1324,6 +1700,7 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
         for mode in metric_modes
     }
     score_sums = {'quality': 0.0, 'raw': 0.0, 'soft': 0.0}
+    score_max = {'quality': 0.0, 'raw': 0.0, 'soft': 0.0}
     score_count = 0
 
     # v10: softcalibrated@0.15 ego 방사거리 3구간 P/R/F1 + 매칭쌍 평균 center distance (로깅 전용)
@@ -1332,7 +1709,10 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
         for i in range(len(DISTANCE_BUCKETS))
     }
 
+    frames_done = 0
     for batch in loader:
+        if max_frames and frames_done >= max_frames:
+            break
         images     = batch['images'].to(device)
         intrinsics = batch['intrinsics'].to(device)
         extrinsics = batch['extrinsics'].to(device)
@@ -1345,18 +1725,22 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
             extrinsics,
             stems=batch['stem'],
             ego_poses=ego_poses,
+            timestamps=batch.get('timestamp'),
             return_intermediate=True,
         )
-        det_classes_b = model_out['det_cls']
-        det_boxes_b = model_out['det_box']
-        det_quality_b = model_out['det_quality']
+        # metric matching은 예측 개수만큼 python 루프 + 텐서 인덱싱이라, GPU에 두면
+        # 반복마다 sync가 걸려 극도로 느리다(특히 낮은 score_thresh). CPU로 옮겨 sync 제거.
+        det_classes_b = model_out['det_cls'].detach().cpu()
+        det_boxes_b = model_out['det_box'].detach().cpu()
+        det_quality_b = model_out['det_quality'].detach().cpu()
         batch_loss, _, _, _ = compute_auxiliary_detection_loss(
             model_out, batch, criterion, device
         )
 
         for i in range(n):
-            gt_boxes = batch['dynamic_gt_boxes'][i].to(device)
-            gt_classes = batch['dynamic_gt_labels'][i].to(device)
+            # det_*_b가 CPU이므로 GT도 CPU에 둔다(metric matching 전용, sync 제거).
+            gt_boxes = batch['dynamic_gt_boxes'][i].cpu()
+            gt_classes = batch['dynamic_gt_labels'][i].cpu()
 
             if compute_metric:
                 fg_probs = det_classes_b[i].sigmoid()
@@ -1368,6 +1752,9 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
                 score_sums['quality'] += float(quality.sum().item())
                 score_sums['raw'] += float(raw_scores.sum().item())
                 score_sums['soft'] += float(soft_scores.sum().item())
+                score_max['quality'] = max(score_max['quality'], float(quality.max().item()))
+                score_max['raw'] = max(score_max['raw'], float(raw_scores.max().item()))
+                score_max['soft'] = max(score_max['soft'], float(soft_scores.max().item()))
                 score_count += int(raw_scores.numel())
 
                 for mode, (apply_quality, quality_power) in metric_modes.items():
@@ -1416,6 +1803,7 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
 
         loss_sum += batch_loss.item()
         n_batches += 1
+        frames_done += n
 
     avg_loss = loss_sum / max(n_batches, 1)
     if not compute_metric:
@@ -1464,6 +1852,8 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
         key: value / max(score_count, 1)
         for key, value in score_sums.items()
     }
+    for key, value in score_max.items():
+        score_stats[f'{key}_max'] = value
 
     # v10: softcalibrated@0.15 거리구간별 P/R/F1 + 평균 matched center distance
     by_distance = {}
@@ -1493,7 +1883,7 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
     }
 
 
-HISTORY_SCORE_THRESHOLDS = (0.05, 0.10, 0.15, 0.25)
+HISTORY_SCORE_THRESHOLDS = (0.01, 0.03, 0.05, 0.10, 0.15, 0.25)
 HISTORY_METRIC_MODES = ("calibrated", "softcalibrated", "raw")
 HISTORY_METRIC_KEYS = ("precision", "recall", "f1")
 
@@ -1513,6 +1903,9 @@ HISTORY_FIELDS = [
     'val_quality_mean',
     'val_raw_score_mean',
     'val_soft_score_mean',
+    'val_quality_score_max',
+    'val_raw_score_max',
+    'val_soft_score_max',
 ]
 for _mode in HISTORY_METRIC_MODES:
     for _thr in HISTORY_SCORE_THRESHOLDS:
@@ -1544,6 +1937,9 @@ def make_history_record(epoch, train_loss, train_cls_loss, train_box_loss,
         'val_quality_mean': float(score_stats.get('quality', float('nan'))),
         'val_raw_score_mean': float(score_stats.get('raw', float('nan'))),
         'val_soft_score_mean': float(score_stats.get('soft', float('nan'))),
+        'val_quality_score_max': float(score_stats.get('quality_max', float('nan'))),
+        'val_raw_score_max': float(score_stats.get('raw_max', float('nan'))),
+        'val_soft_score_max': float(score_stats.get('soft_max', float('nan'))),
     }
     for mode in HISTORY_METRIC_MODES:
         for score_thr in HISTORY_SCORE_THRESHOLDS:
@@ -1627,16 +2023,31 @@ def metric_value(val_metrics, mode, score_thr, key):
     return float(val_metrics['by_mode'][mode][score_thr][key])
 
 
+# 학습 전용 보조 모듈 — 추론/평가/전이 소스 state_dict에서는 제외한다.
+# (depth_net은 dense depth 보조 태스크용으로 추론 forward에서 실행되지 않으며,
+#  기존 eval_distance.py/inference.py는 use_dense_depth=False 모델로 strict load 하므로
+#  이 키가 남아 있으면 unexpected key 로 로드가 실패한다.)
+AUX_ONLY_PREFIXES = ("depth_net.",)
+
+
+def export_inference_state_dict(model):
+    """추론/평가/전이 소스용 순수 state_dict (학습 전용 모듈 제외)."""
+    return {k: v for k, v in model.state_dict().items()
+            if not k.startswith(AUX_ONLY_PREFIXES)}
+
+
 def save_best_with_epoch(model, fixed_path, epoch, tag, score):
-    torch.save(model.state_dict(), fixed_path)
+    export_sd = export_inference_state_dict(model)
+    out_dir = os.path.dirname(fixed_path) or "."
+    os.makedirs(out_dir, exist_ok=True)
+    torch.save(export_sd, fixed_path)
     root, ext = os.path.splitext(fixed_path)
-    out_dir = os.path.dirname(root) or "."
     root_name = os.path.basename(root)
     for name in os.listdir(out_dir):
         if name.startswith(f"{root_name}_epoch") and name.endswith(ext):
             os.remove(os.path.join(out_dir, name))
     epoch_path = f"{root}_epoch{epoch:03d}_{tag}_{score:.4f}{ext}"
-    torch.save(model.state_dict(), epoch_path)
+    torch.save(export_sd, epoch_path)
     return epoch_path
 
 
@@ -1645,12 +2056,17 @@ def save_best_with_epoch(model, fixed_path, epoch, tag, score):
 # ===========================================================
 if __name__ == "__main__":
     # ─── Config ────────────────────────────────────────
-    DATASET_ROOT = './dataset'
-    # val로 뺄 시나리오 이름. None이면 알파벳 정렬 마지막 5개를 자동 사용.
-    # ⚠️ make_kmeans.py 의 --val-scenarios와 반드시 일치시킬 것.
-    VAL_SCENARIOS = None
+    DATASET_ROOT = os.environ.get('DATASET_ROOT', './dataset')
+    # 디스크에 존재하고 labels_3d_v2를 가진 모든 scen*을 사용한다.
+    # 검증 기준 유지를 위해 DEFAULT_VAL_SCENARIOS만 val로 빼고 나머지는 train.
+    # ⚠️ make_kmeans.py 의 DEFAULT_VAL_SCENARIOS와 반드시 일치시킬 것.
+    # env VAL_SCENARIOS(쉼표구분)로 override 가능 — 소규모 검증용 루트(scen02~06 등)에서
+    # 기본 val 시나리오가 디스크에 없을 때 사용. 미설정 시 기존 동작 그대로.
+    _vs_env = os.environ.get('VAL_SCENARIOS')
+    VAL_SCENARIOS = ([s for s in _vs_env.split(',') if s] if _vs_env
+                     else list(DEFAULT_VAL_SCENARIOS))
 
-    NUM_EPOCHS           = 100
+    NUM_EPOCHS           = int(os.environ.get('NUM_EPOCHS', '100'))
     BATCH_SIZE           = 4
     GRAD_ACCUM_STEPS     = 2      # effective batch size = 8
     EARLY_STOP_PATIENCE  = 10     # small MORAI split에서는 best 이후 drift가 빨라 20은 너무 오래 끈다.
@@ -1658,30 +2074,128 @@ if __name__ == "__main__":
     METRIC_EVERY         = 1      # best 기준이 recall이므로 매 epoch P/R 계산
     RECALL_THR           = 2.0    # distance match threshold
     KMEANS_K             = DEFAULT_K
-    FORCE_REMAKE_KMEANS  = True
+    # 기본 True(신규 학습 시 앵커 재생성). env로 끄면 기존 anchor_kmeans_*.npy 재사용
+    # (재시작 시 epoch1과 동일 앵커를 쓰려면 0으로). resume 시엔 아래에서 자동 False.
+    FORCE_REMAKE_KMEANS  = (os.environ.get('FORCE_REMAKE_KMEANS', '1').strip().lower()
+                            not in ('0', '', 'false', 'no', 'off'))
     AUX_LOSS_WEIGHT      = 0.5
-    USE_TEMPORAL_MEMORY  = False
+    USE_TEMPORAL_DATASET = True   # labels_3d_v2 + scene_info + depth_gt 사용
+    # A1(temporal) 스위치. 기본 False(=Stage A0 단일프레임). env USE_TEMPORAL_MEMORY=1 로 A1.
+    # 켜면 아래 USE_STREAMING_SAMPLER 도 자동 True(배치 슬롯별 시간순 스트리밍 필수).
+    # 전제: segments.json 생성 + dataset segment-aware(ego 텔레포트가 seq 안에 없어야 함).
+    USE_TEMPORAL_MEMORY  = (os.environ.get('USE_TEMPORAL_MEMORY', '0').strip().lower()
+                            not in ('0', '', 'false', 'no', 'off'))
+    # temp_gnn ablation 스위치(USE_TEMPORAL_MEMORY=1 일 때만 의미 있음):
+    #   'gated'(기본) = A1-b: temp_gnn ON + 0-init learnable gate(A0 출력 보존 후 서서히 open)
+    #   'off'         = A1-a: sampler/bank는 유지하되 temp_gnn fusion만 완전히 OFF
+    #   'on'          = 구 동작(gate 강제 1.0, zero-gate 없이 바로 더함) — 붕괴 재현/디버그용
+    TEMP_GNN_MODE = os.environ.get('TEMP_GNN_MODE', 'gated').strip().lower()
+    # 스트리밍 샘플러: instance bank(temporal memory)를 켜려면 batch slot별 시간순
+    # 스트리밍이 필수다. 기본은 USE_TEMPORAL_MEMORY 를 따라간다(=지금은 off → 기존
+    # shuffle DataLoader 경로 유지, 런타임 무변경). 강제로 켜서 검증하려면 True.
+    # ablation: env STREAMING_SAMPLER 로 temporal memory와 독립 제어(sampler만 격리).
+    #   미설정 → USE_TEMPORAL_MEMORY 추종(기존 동작)
+    #   0/off  → shuffle DataLoader 강제(bank는 켜둔 채 sampler만 shuffle로 대조)
+    #   1/on   → streaming 강제
+    _stream_env = os.environ.get('STREAMING_SAMPLER')
+    if _stream_env is None:
+        USE_STREAMING_SAMPLER = USE_TEMPORAL_MEMORY
+    else:
+        USE_STREAMING_SAMPLER = _stream_env.strip().lower() not in ('0', '', 'false', 'no', 'off')
+    SEQUENCE_LENGTH      = 150    # MoraiTemporalDataset chunk 길이와 일치시킬 것
     NUM_TEMP_INSTANCES   = 600
+    # v11 checklist 7: dense depth 보조 태스크(loss weight 0.2는 DenseDepthNet 내부),
+    # GridMask(p=0.7, 학습 시만), PhotoMetric(시퀀스-일관, train split만)
+    USE_DENSE_DEPTH      = USE_TEMPORAL_DATASET   # depth_gt 필요 → temporal dataset 전용
+    USE_GRID_MASK        = True
+    USE_PHOTOMETRIC_AUG  = True
+    # occlusion(num_lidar_pts) 필터: 박스 안 LiDAR 점 < 이 값이면 관측불가 GT로 제외(drop).
+    # train+val 둘 다 적용 → val 지표도 '관측 가능한 객체' 기준으로 재측정된다.
+    # 기본 1(유령/amodal 라벨만 제거). env OCCLUSION_MIN_PTS로 override(0=비활성).
+    # 사전 생성 필요: python3 generate_occlusion_gt.py --all
+    OCCLUSION_MIN_PTS    = int(os.environ.get('OCCLUSION_MIN_PTS', '1'))
     PRIMARY_BEST_MODE    = "softcalibrated"
     PRIMARY_BEST_THR     = 0.15
     PRIMARY_BEST_KEY     = "f1"
     BEST_METRIC_MODE     = "raw"  # legacy/resume 호환용
     FREEZE_BACKBONE_BN   = True   # batch=sample별 3 cameras라 backbone BN은 고정
     USE_AMP              = False  # custom aggregation/quality 학습 안정성을 위해 FP32 사용
-    BEST_MODEL_PATH      = "best_model.pth"
-    BEST_RAW_F1_025_PATH = "best_model_raw_f1_025.pth"
-    BEST_VAL_LOSS_PATH   = "best_model_val_loss.pth"
-    LAST_CHECKPOINT_PATH = "last_checkpoint.pth"
-    FINAL_WEIGHTS_PATH   = "morai_autonav_weights.pth"
-    RESUME_FROM          = (
-        LAST_CHECKPOINT_PATH if os.path.isfile(LAST_CHECKPOINT_PATH) else BEST_MODEL_PATH
-    )  # None이면 처음부터 학습
+    OUTPUT_CKPT_DIR      = os.environ.get(
+        'OUTPUT_CKPT_DIR', os.path.join("checkpoints", "v11_transfer"))
+    V10_SOURCE_CKPT      = os.path.join("checkpoints", "v10_source", "best_model.pth")
+    BEST_MODEL_PATH      = os.path.join(OUTPUT_CKPT_DIR, "best_model.pth")
+    BEST_RAW_F1_025_PATH = os.path.join(OUTPUT_CKPT_DIR, "best_model_raw_f1_025.pth")
+    BEST_VAL_LOSS_PATH   = os.path.join(OUTPUT_CKPT_DIR, "best_model_val_loss.pth")
+    LAST_CHECKPOINT_PATH = os.path.join(OUTPUT_CKPT_DIR, "last_checkpoint.pth")
+    FINAL_WEIGHTS_PATH   = os.path.join(OUTPUT_CKPT_DIR, "morai_autonav_weights.pth")
+    os.makedirs(OUTPUT_CKPT_DIR, exist_ok=True)
+    # ── v11 전이학습 (MIGRATION_PLAN §5) ──────────────────
+    # TRANSFER_FROM_V10 이 설정되면 v10 단일프레임 가중치를 규칙 기반 부분전이하고
+    # 3단 옵티마이저(backbone×0.1 / 전이부×0.5 / 신규×1.0)로 처음부터 학습한다.
+    # 이때 RESUME_FROM(full-checkpoint 재개)은 무시된다. None이면 기존 동작 유지.
+    TRANSFER_FROM_V10    = os.environ.get('TRANSFER_FROM_V10') or None  # 예: "best_model.pth"
+    TRANSFER_BASE_LR     = 2e-4
+    _transfer_requested  = (
+        TRANSFER_FROM_V10 is not None and os.path.isfile(str(TRANSFER_FROM_V10))
+    )
+
+    # ── resume vs transfer 명확 분리 (요구사항 D) ────────────────────
+    # 두 모드는 상호배타다. resume이 선택되면 TRANSFER_FROM_V10은 절대 사용하지 않는다.
+    # RESUME env:
+    #   미설정/auto/1  → last_checkpoint.pth 있으면 그것으로 full-resume.
+    #                    (없고 transfer 요청도 없으면 best_model.pth로 weight warm-start)
+    #   <경로>         → 그 경로에서 resume
+    #   0/none/off     → resume 안 함 (scratch 또는 transfer)
+    # 우선순위: resume(명시/자동 checkpoint) > transfer > scratch.
+    _resume_env = (os.environ.get('RESUME') or '').strip()
+    _rl = _resume_env.lower()
+    if _rl in ('0', 'none', 'off', 'false', 'no'):
+        RESUME_FROM = None
+    elif _rl in ('', '1', 'auto', 'true', 'yes'):
+        if os.path.isfile(LAST_CHECKPOINT_PATH):
+            RESUME_FROM = LAST_CHECKPOINT_PATH
+        elif (not _transfer_requested) and os.path.isfile(BEST_MODEL_PATH):
+            RESUME_FROM = BEST_MODEL_PATH   # 기존 fallback: weight warm-start
+        else:
+            RESUME_FROM = None
+        if _rl in ('1', 'true', 'yes') and RESUME_FROM is None:
+            print(f"[학습] RESUME 요청됐지만 재개할 checkpoint 없음: {LAST_CHECKPOINT_PATH}")
+    else:
+        RESUME_FROM = _resume_env   # 사용자 지정 경로
+
+    RESUMING = RESUME_FROM is not None and os.path.isfile(RESUME_FROM)
+    if RESUMING and _transfer_requested:
+        print(f"⚠️  [학습] resume 모드 활성 → TRANSFER_FROM_V10({TRANSFER_FROM_V10}) 무시. "
+              f"checkpoint에서 재개: {RESUME_FROM}")
+        TRANSFER_FROM_V10 = None
+        _transfer_requested = False
+    TRANSFER_MODE = _transfer_requested
+
     HISTORY_CSV_PATH     = "training_history.csv"
     HISTORY_PLOT_PATH    = "training_curves.png"
     WARMUP_STEPS         = 500
     MIN_LR_RATIO         = 1e-3
-    if RESUME_FROM is not None and os.path.isfile(RESUME_FROM):
-        FORCE_REMAKE_KMEANS = False
+    if RESUMING:
+        FORCE_REMAKE_KMEANS = False   # resume 시 anchor 재생성 금지 (checkpoint 정합)
+
+    # ── 실험용 step 기반 루프 / fast mode (요구사항 A,B) ──────────────
+    # 기본값(모두 미설정)이면 기존 full-epoch 동작 그대로. FAST_MODE=1이면
+    # 단일 GPU 실험용 기본값(짧은 val 주기 + val subsample)을 켠다.
+    def _envflag(name, default=False):
+        v = os.environ.get(name)
+        if v is None:
+            return default
+        return v.strip().lower() not in ('0', '', 'false', 'no', 'off')
+
+    FAST_MODE = _envflag('FAST_MODE', False)
+    # optimizer update N회마다 val+checkpoint (0 = 기존 epoch 단위 검증만).
+    VAL_EVERY_STEPS = int(os.environ.get(
+        'VAL_EVERY_STEPS', '1000' if FAST_MODE else '0'))
+    # 한 epoch에서 최대 dataloader step 수 (0 = 제한 없음 / full epoch).
+    MAX_STEPS_PER_EPOCH = int(os.environ.get('MAX_STEPS_PER_EPOCH', '0'))
+    # validation에서 사용할 최대 프레임 수 (0 = 전체 val). fast 검증 속도용.
+    FAST_VAL_MAX_FRAMES = int(os.environ.get(
+        'FAST_VAL_MAX_FRAMES', '1000' if FAST_MODE else '0'))
     # ───────────────────────────────────────────────────
 
     print("SparseDrive-style 3-camera detection 학습 시작! [vehicle + pedestrian]")
@@ -1703,6 +2217,17 @@ if __name__ == "__main__":
     print(f"   - backbone BN : freeze={FREEZE_BACKBONE_BN}")
     print(f"   - AMP         : {USE_AMP}")
     print(f"   - batch       : {BATCH_SIZE} x accum {GRAD_ACCUM_STEPS} = {BATCH_SIZE * GRAD_ACCUM_STEPS}\n")
+    _loop_desc = (
+        f"STEP (val+ckpt {VAL_EVERY_STEPS} update마다)" if VAL_EVERY_STEPS > 0
+        else "FULL-EPOCH"
+    )
+    print(f"   - loop mode   : {_loop_desc}"
+          f"{' | max_steps/epoch=%d' % MAX_STEPS_PER_EPOCH if MAX_STEPS_PER_EPOCH > 0 else ''}"
+          f"{' | val_max_frames=%d' % FAST_VAL_MAX_FRAMES if FAST_VAL_MAX_FRAMES > 0 else ' | val=full'}")
+    print(f"   - run mode    : "
+          f"{'RESUME(%s)' % RESUME_FROM if RESUMING else ('TRANSFER(%s)' % TRANSFER_FROM_V10 if TRANSFER_MODE else 'SCRATCH')}")
+    print(f"   - occlusion   : min_lidar_pts={OCCLUSION_MIN_PTS} "
+          f"({'OFF' if OCCLUSION_MIN_PTS <= 0 else 'train+val GT에서 관측불가 박스 drop'})")
     print(f"   - graph       : {HISTORY_PLOT_PATH} (csv: {HISTORY_CSV_PATH})\n")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -1723,12 +2248,48 @@ if __name__ == "__main__":
         pretrained_backbone=True,
         use_temporal_memory=USE_TEMPORAL_MEMORY,
         num_temp_instances=NUM_TEMP_INSTANCES,
+        use_grid_mask=USE_GRID_MASK,
+        use_dense_depth=USE_DENSE_DEPTH,
     ).to(device)
     if FREEZE_BACKBONE_BN:
         model.freeze_backbone_bn()
 
-    train_ds = MoraiDataset(dataset_root=DATASET_ROOT, split='train', val_scenarios=VAL_SCENARIOS)
-    val_ds   = MoraiDataset(dataset_root=DATASET_ROOT, split='val',   val_scenarios=VAL_SCENARIOS)
+    # temp_gnn ablation 적용(temporal memory ON일 때만 실질 효과).
+    #   off  : temp_gnn fusion 완전 비활성(A1-a) — sampler/bank 안전성 검증용
+    #   on   : gate 강제 1.0(구 붕괴 동작 재현)
+    #   gated: 0-init learnable gate 유지(기본, A1-b)
+    if USE_TEMPORAL_MEMORY:
+        _n_gnn = 0
+        for _layer in model.decoder_layers:
+            if not getattr(_layer, 'use_temp_gnn', False):
+                continue
+            _n_gnn += 1
+            if TEMP_GNN_MODE == 'off':
+                _layer.temp_gnn_enabled = False
+            elif TEMP_GNN_MODE == 'on':
+                _layer.temp_gnn_enabled = True
+                with torch.no_grad():
+                    _layer.temp_gate.fill_(1.0)
+            else:  # 'gated'
+                _layer.temp_gnn_enabled = True
+        print(f"   - temp_gnn    : mode={TEMP_GNN_MODE} "
+              f"(gnn layers={_n_gnn}, gate={'1.0(forced)' if TEMP_GNN_MODE=='on' else ('disabled' if TEMP_GNN_MODE=='off' else '0-init learnable')})")
+
+    # v11 전이: v10 가중치를 규칙 기반 부분전이 (옵티마이저 그룹 구성보다 먼저)
+    if TRANSFER_MODE:
+        load_v10_weights(model, TRANSFER_FROM_V10)
+
+    dataset_cls = MoraiTemporalDataset if USE_TEMPORAL_DATASET else MoraiDataset
+    collate_fn = morai_temporal_collate_fn if USE_TEMPORAL_DATASET else morai_collate_fn
+    if USE_TEMPORAL_DATASET:
+        train_ds = dataset_cls(dataset_root=DATASET_ROOT, split='train', val_scenarios=VAL_SCENARIOS,
+                               photometric_aug=USE_PHOTOMETRIC_AUG,
+                               occlusion_min_pts=OCCLUSION_MIN_PTS)
+        val_ds   = dataset_cls(dataset_root=DATASET_ROOT, split='val',   val_scenarios=VAL_SCENARIOS,
+                               occlusion_min_pts=OCCLUSION_MIN_PTS)
+    else:
+        train_ds = dataset_cls(dataset_root=DATASET_ROOT, split='train', val_scenarios=VAL_SCENARIOS)
+        val_ds   = dataset_cls(dataset_root=DATASET_ROOT, split='val',   val_scenarios=VAL_SCENARIOS)
 
     if USE_TEMPORAL_MEMORY:
         train_pose_count, train_pose_total = count_ego_pose_files(train_ds)
@@ -1745,38 +2306,72 @@ if __name__ == "__main__":
                 "morai_3d_live.py로 새로 수집한 데이터부터 활성화됩니다.\n"
             )
 
-    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=not USE_TEMPORAL_MEMORY,
-                              collate_fn=morai_collate_fn, num_workers=0)
-    val_loader   = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False,
-                              collate_fn=morai_collate_fn, num_workers=0)
+    if USE_STREAMING_SAMPLER:
+        # temporal memory용 스트리밍: batch slot별 시간순, position↔bank slot 안정.
+        # train은 매 배치 정확히 B개(drop_uneven_tail=True)로 포지션을 고정,
+        # val은 full coverage(ragged tail) deterministic 스트리밍.
+        train_sampler = StreamingGroupSampler(
+            train_ds, batch_size=BATCH_SIZE, shuffle=True,
+            seed=0, drop_uneven_tail=True,
+        )
+        val_sampler = StreamingGroupSampler(
+            val_ds, batch_size=BATCH_SIZE, shuffle=False,
+            seed=0, drop_uneven_tail=False,
+        )
+        train_loader = DataLoader(train_ds, batch_sampler=train_sampler,
+                                  collate_fn=collate_fn, num_workers=0)
+        val_loader   = DataLoader(val_ds, batch_sampler=val_sampler,
+                                  collate_fn=collate_fn, num_workers=0)
+    else:
+        train_sampler = None
+        # non-streaming 분기 = streaming을 안 쓰는 경우이므로 항상 shuffle(표준 학습).
+        # (기존 도달 케이스는 USE_TEMPORAL_MEMORY=0뿐이라 이전에도 True였음 → 동작 불변.
+        #  STREAMING_SAMPLER=0 강제 시 sampler만 shuffle로 바꾸는 대조군을 위해 명시 True.)
+        train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,
+                                  collate_fn=collate_fn, num_workers=0)
+        val_loader   = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False,
+                                  collate_fn=collate_fn, num_workers=0)
 
     # num_classes=2: vehicle, pedestrian (sigmoid focal, 배경 채널 없음)
     # v9: quality_weight=0.2 명시 — centerness/confidence 학습 강화
     det_criterion = CustomLoss(num_classes=2, quality_weight=0.2).to(device)
 
-    backbone_params = list(model.backbone.parameters())
-    backbone_ids    = set(id(p) for p in backbone_params)
-    other_params    = [p for p in model.parameters() if id(p) not in backbone_ids]
+    if TRANSFER_MODE:
+        # 3단 그룹: backbone×0.1 / 전이부×0.5 / 신규(depth·temp·reg velocity)×1.0
+        param_groups, group_names = build_transfer_param_groups(
+            model, base_lr=TRANSFER_BASE_LR,
+        )
+        n_by_group = {g: len(names) for g, names in group_names.items()}
+        print(f"[전이] 옵티마이저 3단 그룹 (base_lr={TRANSFER_BASE_LR}): "
+              f"backbone×0.1={n_by_group['backbone']}, "
+              f"loaded×0.5={n_by_group['loaded']}, new×1.0={n_by_group['new']} 텐서")
+        wandb_cfg = {
+            "transfer_from": TRANSFER_FROM_V10, "base_lr": TRANSFER_BASE_LR,
+            "lr_backbone": TRANSFER_BASE_LR * 0.1, "lr_loaded": TRANSFER_BASE_LR * 0.5,
+            "lr_new": TRANSFER_BASE_LR, "batch_size": BATCH_SIZE, "grad_accum": GRAD_ACCUM_STEPS,
+        }
+        wandb_name, wandb_tags = "v11-transfer", ["v11", "transfer"]
+        optimizer = optim.AdamW(param_groups)
+    else:
+        backbone_params = list(model.backbone.parameters())
+        backbone_ids    = set(id(p) for p in backbone_params)
+        other_params    = [p for p in model.parameters() if id(p) not in backbone_ids]
+        wandb_cfg = {
+            "lr_backbone": 2e-5, "lr_head": 1e-4, "wd_backbone": 1e-3,
+            "wd_head": 1e-2, "batch_size": 4, "grad_accum": 2,
+        }
+        wandb_name, wandb_tags = "v10", ["v10"]
+        optimizer = optim.AdamW([
+            {'params': backbone_params, 'lr': 1e-5,  'weight_decay': 1e-3},
+            {'params': other_params,    'lr': 5e-5,  'weight_decay': 1e-2},
+        ])
 
     wandb.init(
         project="morai-3d-detection",
-        name="v10",
-        tags=["v10"],
-        config={
-            "lr_backbone": 2e-5,
-            "lr_head": 1e-4,
-            "wd_backbone": 1e-3,
-            "wd_head": 1e-2,
-            "batch_size": 4,
-            "grad_accum": 2,
-        }
+        name=wandb_name,
+        tags=wandb_tags,
+        config=wandb_cfg,
     )
-
-
-    optimizer = optim.AdamW([
-        {'params': backbone_params, 'lr': 1e-5,  'weight_decay': 1e-3},
-        {'params': other_params,    'lr': 5e-5,  'weight_decay': 1e-2},
-    ])
 
     updates_per_epoch = max(math.ceil(len(train_loader) / GRAD_ACCUM_STEPS), 1)
     total_update_steps = max(updates_per_epoch * NUM_EPOCHS, 1)
@@ -1830,7 +2425,11 @@ if __name__ == "__main__":
                 pass  # optimizer state 스킵
             if 'scaler_state' in ckpt and ckpt['scaler_state'] is not None:
                 scaler.load_state_dict(ckpt['scaler_state'])
-            start_epoch = int(ckpt.get('epoch', -1)) + 1
+            saved_epoch = int(ckpt.get('epoch', -1))
+            # epoch_completed=False(step 모드 mid-epoch 저장)면 해당 epoch을 다시 시작.
+            # 구 포맷 checkpoint엔 이 키가 없으므로 True(=epoch 끝에서 저장)로 간주.
+            epoch_completed = bool(ckpt.get('epoch_completed', True))
+            start_epoch = saved_epoch + 1 if epoch_completed else max(saved_epoch, 0)
             global_update_step = int(ckpt.get('global_update_step', global_update_step))
             best_recall = float(ckpt.get('best_recall', best_recall))
             best_val_loss = float(ckpt.get('best_val_loss', best_val_loss))
@@ -1847,35 +2446,256 @@ if __name__ == "__main__":
                 f"start_epoch={start_epoch + 1}, update_step={global_update_step}\n"
             )
         else:
-            model.load_state_dict(ckpt)
+            # 순수 state_dict warm-start (optimizer/LR/epoch 새로 시작).
+            # best_model.pth는 export_inference_state_dict라 depth_net 키가 없다 →
+            # strict 로드는 실패하므로 shape 일치 키만 필터 로드(depth_net은 init 유지).
+            model_state = model.state_dict()
+            filtered = {k: v for k, v in ckpt.items()
+                        if k in model_state and v.shape == model_state[k].shape}
+            skipped = [k for k in ckpt if k not in filtered]
+            missing = [k for k in model_state if k not in ckpt]
+            model_state.update(filtered)
+            model.load_state_dict(model_state)
             print(
-                f"[학습] 모델 가중치에서 이어 학습: {RESUME_FROM} "
-                f"(optimizer/LR/epoch은 새로 시작)\n"
+                f"[학습] 모델 가중치 warm-start: {RESUME_FROM} "
+                f"(optimizer/LR/epoch 새로 시작)\n"
+                f"   로드 {len(filtered)}/{len(ckpt)} | ckpt에만 있어 스킵 {len(skipped)} | "
+                f"모델 신규(init 유지) {len(missing)}개 예: {missing[:3]}\n"
             )
     else:
         if RESUME_FROM is not None:
             print(f"[학습] resume 파일 없음: {RESUME_FROM}")
         print("[학습] 처음부터 학습\n")
 
+    # 검증+로깅+best저장+resume체크포인트를 한 곳에 모은다. full-epoch(끝에서 1회)와
+    # step 기반(VAL_EVERY_STEPS update마다) 양쪽에서 동일 코드로 호출한다.
+    # 참고: 이 블록은 module-level(__main__) 스코프라 재바인딩은 global 선언이 필요하다.
+    eval_counter = len(history_records)   # history CSV/plot x축 (단조 증가)
+
+    def run_validation_and_checkpoint(train_stats, lr, epoch_idx, epoch_completed,
+                                      compute_metric):
+        """검증→로깅→best 저장→resume checkpoint. early-stop 여부를 반환."""
+        global best_val_loss, epochs_no_improve, eval_counter
+
+        val_loss, val_metrics = validate(
+            model, val_loader, det_criterion, device,
+            compute_metric=compute_metric, recall_thr=RECALL_THR,
+            max_frames=FAST_VAL_MAX_FRAMES,
+        )
+
+        train_loss         = train_stats['loss']
+        train_cls_loss     = train_stats['cls']
+        train_box_loss     = train_stats['box']
+        train_quality_loss = train_stats['quality']
+        train_depth_loss   = train_stats['depth']
+
+        eval_counter += 1
+        header = f"Epoch {epoch_idx+1}/{NUM_EPOCHS}"
+        if not epoch_completed:
+            header += f" · upd {global_update_step}"
+        msg = (f"\n📊 {header} [eval {eval_counter}] | "
+               f"Train: {train_loss:.4f} "
+               f"(Cls {train_cls_loss:.4f}, Box {train_box_loss:.4f}, "
+               f"Q {train_quality_loss:.4f}, Depth {train_depth_loss:.4f}) | "
+               f"Val: {val_loss:.4f} | LR: {lr:.2e}")
+        if val_metrics is not None:
+            for mode in HISTORY_METRIC_MODES:
+                msg += f"\n   └─ Val {mode} P/R/F1@{RECALL_THR}m:"
+                for score_thr in HISTORY_SCORE_THRESHOLDS:
+                    metric = val_metrics['by_mode'][mode][score_thr]
+                    msg += (
+                        f" score>={score_thr:.2f} "
+                        f"{metric['precision']:.4f}/{metric['recall']:.4f}/{metric['f1']:.4f}"
+                    )
+            prim_cls = (
+                val_metrics.get('by_mode_class', {})
+                .get(PRIMARY_BEST_MODE, {})
+                .get(PRIMARY_BEST_THR, {})
+            )
+            if prim_cls:
+                msg += (
+                    f"\n   └─ Val {PRIMARY_BEST_MODE} per-class P/R/F1@{RECALL_THR}m "
+                    f"(score>={PRIMARY_BEST_THR:.2f}):"
+                )
+                for cls in sorted(CLASS_ID_NAMES):
+                    cm = prim_cls.get(cls)
+                    if cm is None:
+                        continue
+                    msg += (
+                        f" {CLASS_ID_NAMES[cls]} "
+                        f"{cm['precision']:.4f}/{cm['recall']:.4f}/{cm['f1']:.4f}"
+                    )
+            by_distance = val_metrics.get('by_distance', {})
+            if by_distance:
+                msg += "\n   └─ Val softcalibrated 거리구간별 P/R/F1@0.15 (matched center dist):"
+                for (lo, hi), dm in by_distance.items():
+                    cdist_str = (
+                        f"{dm['mean_center_dist']:.3f}m" if dm['mean_center_dist'] is not None else "n/a"
+                    )
+                    msg += (
+                        f" [{lo:.0f}-{hi:.0f}m) "
+                        f"{dm['precision']:.4f}/{dm['recall']:.4f}/{dm['f1']:.4f} "
+                        f"(cdist={cdist_str})"
+                    )
+        print(msg)
+
+        history_records.append(make_history_record(
+            eval_counter,
+            train_loss,
+            train_cls_loss,
+            train_box_loss,
+            train_quality_loss,
+            val_loss,
+            lr,
+            val_metrics,
+        ))
+        save_training_history(history_records, HISTORY_CSV_PATH, HISTORY_PLOT_PATH)
+        print(f"   📈 Loss 그래프 갱신: {HISTORY_PLOT_PATH} | 로그: {HISTORY_CSV_PATH}")
+
+        wandb_log = {
+            "epoch": epoch_idx + 1,
+            "eval_point": eval_counter,
+            "update_step": global_update_step,
+            "train/loss": train_loss,
+            "train/cls_loss": train_cls_loss,
+            "train/box_loss": train_box_loss,
+            "train/quality_loss": train_quality_loss,
+            "val/loss": val_loss,
+            "lr": lr,
+        }
+        if val_metrics is not None:
+            for mode in HISTORY_METRIC_MODES:
+                for score_thr in HISTORY_SCORE_THRESHOLDS:
+                    metric = val_metrics['by_mode'][mode][score_thr]
+                    wandb_log[f"val/{mode}/precision@{score_thr:.2f}"] = metric['precision']
+                    wandb_log[f"val/{mode}/recall@{score_thr:.2f}"] = metric['recall']
+                    wandb_log[f"val/{mode}/f1@{score_thr:.2f}"] = metric['f1']
+            by_mode_class = val_metrics.get('by_mode_class', {})
+            for mode in HISTORY_METRIC_MODES:
+                for score_thr in HISTORY_SCORE_THRESHOLDS:
+                    cls_metrics = by_mode_class.get(mode, {}).get(score_thr, {})
+                    for cls in sorted(CLASS_ID_NAMES):
+                        cm = cls_metrics.get(cls)
+                        if cm is None:
+                            continue
+                        cname = CLASS_ID_NAMES[cls]
+                        wandb_log[f"val/{mode}/{cname}/precision@{score_thr:.2f}"] = cm['precision']
+                        wandb_log[f"val/{mode}/{cname}/recall@{score_thr:.2f}"] = cm['recall']
+                        wandb_log[f"val/{mode}/{cname}/f1@{score_thr:.2f}"] = cm['f1']
+            for (lo, hi), dm in val_metrics.get('by_distance', {}).items():
+                tag = f"dist_{lo:.0f}_{hi:.0f}m"
+                wandb_log[f"val/softcalibrated/{tag}/precision@0.15"] = dm['precision']
+                wandb_log[f"val/softcalibrated/{tag}/recall@0.15"] = dm['recall']
+                wandb_log[f"val/softcalibrated/{tag}/f1@0.15"] = dm['f1']
+                if dm['mean_center_dist'] is not None:
+                    wandb_log[f"val/softcalibrated/{tag}/mean_center_dist@0.15"] = dm['mean_center_dist']
+        wandb.log(wandb_log)
+
+        # ─── Best save: 실사용/분석 기준을 분리 저장 ─────────
+        primary_score = metric_value(
+            val_metrics, PRIMARY_BEST_MODE, PRIMARY_BEST_THR, PRIMARY_BEST_KEY,
+        )
+        primary_improved = (
+            primary_score > best_scores['primary'] + EARLY_STOP_MIN_DELTA or
+            (
+                abs(primary_score - best_scores['primary']) <= EARLY_STOP_MIN_DELTA and
+                val_loss < best_val_loss
+            )
+        )
+        if primary_improved:
+            best_scores['primary'] = primary_score
+            best_val_loss = min(best_val_loss, val_loss)
+            epochs_no_improve = 0
+            epoch_best_path = save_best_with_epoch(
+                model, BEST_MODEL_PATH, epoch_idx + 1,
+                f"{PRIMARY_BEST_MODE}_{PRIMARY_BEST_KEY}_{_score_suffix(PRIMARY_BEST_THR)}",
+                primary_score,
+            )
+            print(
+                f"   💾 Primary best 저장: {BEST_MODEL_PATH} | "
+                f"{PRIMARY_BEST_MODE} {PRIMARY_BEST_KEY}@{PRIMARY_BEST_THR:.2f}="
+                f"{primary_score:.4f} | Val Loss: {val_loss:.4f}"
+                f"\n      ↳ epoch snapshot: {epoch_best_path}"
+            )
+        else:
+            epochs_no_improve += 1
+            print(
+                f"   ⏳ Primary best 개선 없음 "
+                f"({epochs_no_improve}/{EARLY_STOP_PATIENCE}) | "
+                f"current={primary_score:.4f}, best={best_scores['primary']:.4f}"
+            )
+
+        raw_f1_025 = metric_value(val_metrics, 'raw', 0.25, 'f1')
+        if raw_f1_025 > best_scores['raw_f1_025'] + EARLY_STOP_MIN_DELTA:
+            best_scores['raw_f1_025'] = raw_f1_025
+            epoch_best_path = save_best_with_epoch(
+                model, BEST_RAW_F1_025_PATH, epoch_idx + 1, "raw_f1_025", raw_f1_025,
+            )
+            print(
+                f"   💾 Raw F1@0.25 best 저장: {raw_f1_025:.4f} -> "
+                f"{BEST_RAW_F1_025_PATH} ({epoch_best_path})"
+            )
+
+        if val_loss < best_scores['val_loss'] - EARLY_STOP_MIN_DELTA:
+            best_scores['val_loss'] = val_loss
+            best_val_loss = val_loss
+            epoch_best_path = save_best_with_epoch(
+                model, BEST_VAL_LOSS_PATH, epoch_idx + 1, "val_loss", val_loss,
+            )
+            print(
+                f"   💾 Val loss best 저장: {val_loss:.4f} -> "
+                f"{BEST_VAL_LOSS_PATH} ({epoch_best_path})"
+            )
+
+        # ─── Resume용 full checkpoint ─────────────────────
+        # epoch_completed=False면 재개 시 이 epoch을 처음부터 다시 시작한다
+        # (mid-epoch 저장). global_update_step/LR은 연속 유지되므로 안전.
+        torch.save({
+            'epoch': epoch_idx,
+            'epoch_completed': epoch_completed,
+            'model_state': model.state_dict(),
+            'optimizer_state': optimizer.state_dict(),
+            'scaler_state': scaler.state_dict() if scaler is not None else None,
+            'global_update_step': global_update_step,
+            'best_recall': best_recall,
+            'best_val_loss': best_val_loss,
+            'best_scores': best_scores,
+            'epochs_no_improve': epochs_no_improve,
+            'history_records': history_records,
+        }, LAST_CHECKPOINT_PATH)
+        print(f"   💽 Resume 체크포인트 저장: {LAST_CHECKPOINT_PATH}"
+              f" (epoch={epoch_idx+1}, completed={epoch_completed})")
+
+        return epochs_no_improve >= EARLY_STOP_PATIENCE
+
     for epoch in range(start_epoch, NUM_EPOCHS):
         # ─── Train ───────────────────────────────────────
+        # 스트리밍 샘플러: epoch마다 시퀀스 순서 reshuffle (프레임 내부순서는 유지)
+        if train_sampler is not None and hasattr(train_sampler, "set_epoch"):
+            train_sampler.set_epoch(epoch)
+        # 시퀀스-일관 photometric 증강 파라미터도 epoch마다 갱신
+        if hasattr(train_ds, "set_epoch"):
+            train_ds.set_epoch(epoch)
         model.train()
         if FREEZE_BACKBONE_BN:
             model.freeze_backbone_bn()
         if hasattr(model, "reset_temporal_memory"):
             model.reset_temporal_memory()
         print(f"\n========== [Epoch {epoch+1}/{NUM_EPOCHS}] ==========")
-        train_loss_sum = 0.0
-        train_cls_loss_sum = 0.0
-        train_box_loss_sum = 0.0
-        train_quality_loss_sum = 0.0
+        # interval 기준 running 누적 (full-epoch 모드에선 epoch 전체 = 1 interval).
+        run = {'loss': 0.0, 'cls': 0.0, 'box': 0.0, 'quality': 0.0, 'depth': 0.0, 'n': 0}
+        early_stop = False
         optimizer.zero_grad(set_to_none=True)
 
         for step, batch in enumerate(train_loader):
+            if MAX_STEPS_PER_EPOCH and step >= MAX_STEPS_PER_EPOCH:
+                break
             images     = batch['images'].to(device)
             intrinsics = batch['intrinsics'].to(device)
             extrinsics = batch['extrinsics'].to(device)
             ego_poses  = batch['ego_pose'].to(device)
+            focal      = batch['focal'].to(device) if (USE_DENSE_DEPTH and 'focal' in batch) else None
+            timestamps = batch.get('timestamp')   # [B] float64 (temporal dt 정밀도)
 
             with torch.cuda.amp.autocast(enabled=(device.type == "cuda" and USE_AMP)):
                 model_out = model(
@@ -1884,6 +2704,8 @@ if __name__ == "__main__":
                     extrinsics,
                     stems=batch['stem'],
                     ego_poses=ego_poses,
+                    focal=focal,
+                    timestamps=timestamps,
                     return_intermediate=True,
                 )
                 batch_loss, batch_cls_loss, batch_box_loss, batch_quality_loss = (
@@ -1895,6 +2717,13 @@ if __name__ == "__main__":
                         aux_weight=AUX_LOSS_WEIGHT,
                     )
                 )
+                # dense depth 보조 loss (weight 0.2는 DenseDepthNet.loss 내부, fp32 계산)
+                batch_depth_loss = images.new_tensor(0.0)
+                if model_out.get('depth_pred') is not None:
+                    gt_depth_dev = [g.to(device) for g in batch['gt_depth']]
+                    batch_depth_loss = model.depth_net.loss(
+                        model_out['depth_pred'], gt_depth_dev)
+                    batch_loss = batch_loss + batch_depth_loss
 
             loss_for_backward = batch_loss / GRAD_ACCUM_STEPS
             scaler.scale(loss_for_backward).backward()
@@ -1915,10 +2744,12 @@ if __name__ == "__main__":
                     global_update_step += 1
                     set_optimizer_lr(global_update_step)
 
-            train_loss_sum += batch_loss.item()
-            train_cls_loss_sum += batch_cls_loss.item()
-            train_box_loss_sum += batch_box_loss.item()
-            train_quality_loss_sum += batch_quality_loss.item()
+            run['loss'] += batch_loss.item()
+            run['cls'] += batch_cls_loss.item()
+            run['box'] += batch_box_loss.item()
+            run['quality'] += batch_quality_loss.item()
+            run['depth'] += float(batch_depth_loss.item())
+            run['n'] += 1
 
             if step % 10 == 0:
                 print(
@@ -1926,205 +2757,45 @@ if __name__ == "__main__":
                     f"Det Loss: {batch_loss.item():.4f} | "
                     f"Cls: {batch_cls_loss.item():.4f} | "
                     f"Box: {batch_box_loss.item():.4f} | "
-                    f"Quality: {batch_quality_loss.item():.4f}"
+                    f"Quality: {batch_quality_loss.item():.4f} | "
+                    f"Depth: {batch_depth_loss.item():.4f}"
                 )
 
-        train_loss = train_loss_sum / len(train_loader)
-        train_cls_loss = train_cls_loss_sum / len(train_loader)
-        train_box_loss = train_box_loss_sum / len(train_loader)
-        train_quality_loss = train_quality_loss_sum / len(train_loader)
-
-        # ─── Val ─────────────────────────────────────────
-        compute_metric = ((epoch + 1) % METRIC_EVERY == 0)
-        val_loss, val_metrics = validate(
-            model, val_loader, det_criterion, device,
-            compute_metric=compute_metric, recall_thr=RECALL_THR,
-        )
-
-        lr = optimizer.param_groups[-1]['lr']
-        msg = (f"\n📊 Epoch {epoch+1} | "
-               f"Train: {train_loss:.4f} "
-               f"(Cls {train_cls_loss:.4f}, Box {train_box_loss:.4f}, Q {train_quality_loss:.4f}) | "
-               f"Val: {val_loss:.4f} | LR: {lr:.2e}")
-        if val_metrics is not None:
-            for mode in HISTORY_METRIC_MODES:
-                msg += f"\n   └─ Val {mode} P/R/F1@{RECALL_THR}m:"
-                for score_thr in HISTORY_SCORE_THRESHOLDS:
-                    metric = val_metrics['by_mode'][mode][score_thr]
-                    msg += (
-                        f" score>={score_thr:.2f} "
-                        f"{metric['precision']:.4f}/{metric['recall']:.4f}/{metric['f1']:.4f}"
-                    )
-            # v9: primary mode 기준 클래스별(vehicle/pedestrian) 분리 수치
-            prim_cls = (
-                val_metrics.get('by_mode_class', {})
-                .get(PRIMARY_BEST_MODE, {})
-                .get(PRIMARY_BEST_THR, {})
-            )
-            if prim_cls:
-                msg += (
-                    f"\n   └─ Val {PRIMARY_BEST_MODE} per-class P/R/F1@{RECALL_THR}m "
-                    f"(score>={PRIMARY_BEST_THR:.2f}):"
+            # ─── step 기반 검증/체크포인트 (VAL_EVERY_STEPS>0) ───
+            # optimizer update 경계에서만, 정확히 N update마다 1회 트리거.
+            if (VAL_EVERY_STEPS > 0 and should_step and
+                    global_update_step > 0 and
+                    global_update_step % VAL_EVERY_STEPS == 0 and run['n'] > 0):
+                train_stats = {k: run[k] / run['n'] for k in ('loss', 'cls', 'box', 'quality', 'depth')}
+                early_stop = run_validation_and_checkpoint(
+                    train_stats, optimizer.param_groups[-1]['lr'],
+                    epoch, epoch_completed=False, compute_metric=True,
                 )
-                for cls in sorted(CLASS_ID_NAMES):
-                    cm = prim_cls.get(cls)
-                    if cm is None:
-                        continue
-                    msg += (
-                        f" {CLASS_ID_NAMES[cls]} "
-                        f"{cm['precision']:.4f}/{cm['recall']:.4f}/{cm['f1']:.4f}"
-                    )
-            # v10: softcalibrated@0.15 ego 방사거리 3구간 P/R/F1 + 매칭쌍 평균 center distance
-            by_distance = val_metrics.get('by_distance', {})
-            if by_distance:
-                msg += "\n   └─ Val softcalibrated 거리구간별 P/R/F1@0.15 (matched center dist):"
-                for (lo, hi), dm in by_distance.items():
-                    cdist_str = (
-                        f"{dm['mean_center_dist']:.3f}m" if dm['mean_center_dist'] is not None else "n/a"
-                    )
-                    msg += (
-                        f" [{lo:.0f}-{hi:.0f}m) "
-                        f"{dm['precision']:.4f}/{dm['recall']:.4f}/{dm['f1']:.4f} "
-                        f"(cdist={cdist_str})"
-                    )
-        print(msg)
+                # interval 누적 리셋 + 학습 모드 복귀 (validate가 eval로 바꿔놓음)
+                run = {k: (0.0 if k != 'n' else 0) for k in run}
+                model.train()
+                if FREEZE_BACKBONE_BN:
+                    model.freeze_backbone_bn()
+                if hasattr(model, "reset_temporal_memory"):
+                    model.reset_temporal_memory()
+                if early_stop:
+                    break
 
-        history_records.append(make_history_record(
-            epoch + 1,
-            train_loss,
-            train_cls_loss,
-            train_box_loss,
-            train_quality_loss,
-            val_loss,
-            lr,
-            val_metrics,
-        ))
-        save_training_history(history_records, HISTORY_CSV_PATH, HISTORY_PLOT_PATH)
-        print(f"   📈 Loss 그래프 갱신: {HISTORY_PLOT_PATH} | 로그: {HISTORY_CSV_PATH}")
+        if early_stop:
+            print(f"\n⚠️  Early Stopping! "
+                  f"Primary metric이 {EARLY_STOP_PATIENCE}회 검증 동안 개선 없음.")
+            break
 
-        wandb_log = {
-            "epoch": epoch + 1,
-            "train/loss": train_loss,
-            "train/cls_loss": train_cls_loss,
-            "train/box_loss": train_box_loss,
-            "train/quality_loss": train_quality_loss,
-            "val/loss": val_loss,
-            "lr": lr,
-        }
-        if val_metrics is not None:
-            for mode in HISTORY_METRIC_MODES:
-                for score_thr in HISTORY_SCORE_THRESHOLDS:
-                    metric = val_metrics['by_mode'][mode][score_thr]
-                    wandb_log[f"val/{mode}/precision@{score_thr:.2f}"] = metric['precision']
-                    wandb_log[f"val/{mode}/recall@{score_thr:.2f}"] = metric['recall']
-                    wandb_log[f"val/{mode}/f1@{score_thr:.2f}"] = metric['f1']
-            # v9: 클래스별 P/R/F1 (예: val/softcalibrated/vehicle/f1@0.15)
-            by_mode_class = val_metrics.get('by_mode_class', {})
-            for mode in HISTORY_METRIC_MODES:
-                for score_thr in HISTORY_SCORE_THRESHOLDS:
-                    cls_metrics = by_mode_class.get(mode, {}).get(score_thr, {})
-                    for cls in sorted(CLASS_ID_NAMES):
-                        cm = cls_metrics.get(cls)
-                        if cm is None:
-                            continue
-                        cname = CLASS_ID_NAMES[cls]
-                        wandb_log[f"val/{mode}/{cname}/precision@{score_thr:.2f}"] = cm['precision']
-                        wandb_log[f"val/{mode}/{cname}/recall@{score_thr:.2f}"] = cm['recall']
-                        wandb_log[f"val/{mode}/{cname}/f1@{score_thr:.2f}"] = cm['f1']
-            # v10: softcalibrated@0.15 거리구간별 P/R/F1 + 평균 matched center distance
-            for (lo, hi), dm in val_metrics.get('by_distance', {}).items():
-                tag = f"dist_{lo:.0f}_{hi:.0f}m"
-                wandb_log[f"val/softcalibrated/{tag}/precision@0.15"] = dm['precision']
-                wandb_log[f"val/softcalibrated/{tag}/recall@0.15"] = dm['recall']
-                wandb_log[f"val/softcalibrated/{tag}/f1@0.15"] = dm['f1']
-                if dm['mean_center_dist'] is not None:
-                    wandb_log[f"val/softcalibrated/{tag}/mean_center_dist@0.15"] = dm['mean_center_dist']
-        wandb.log(wandb_log)
-
-        # ─── Best save: 실사용/분석 기준을 분리 저장 ─────────
-        primary_score = metric_value(
-            val_metrics,
-            PRIMARY_BEST_MODE,
-            PRIMARY_BEST_THR,
-            PRIMARY_BEST_KEY,
-        )
-        primary_improved = (
-            primary_score > best_scores['primary'] + EARLY_STOP_MIN_DELTA or
-            (
-                abs(primary_score - best_scores['primary']) <= EARLY_STOP_MIN_DELTA and
-                val_loss < best_val_loss
+        # ─── epoch 끝 검증 ────────────────────────────────
+        # step 모드에서 직전 검증 이후 남은 step(run['n']>0)만 마무리 검증한다.
+        # (VAL_EVERY_STEPS로 딱 떨어져 run['n']==0이면 중복 검증 생략.)
+        if run['n'] > 0:
+            compute_metric = ((epoch + 1) % METRIC_EVERY == 0)
+            train_stats = {k: run[k] / run['n'] for k in ('loss', 'cls', 'box', 'quality', 'depth')}
+            early_stop = run_validation_and_checkpoint(
+                train_stats, optimizer.param_groups[-1]['lr'],
+                epoch, epoch_completed=True, compute_metric=compute_metric,
             )
-        )
-        if primary_improved:
-            best_scores['primary'] = primary_score
-            best_val_loss = min(best_val_loss, val_loss)
-            epochs_no_improve = 0
-            epoch_best_path = save_best_with_epoch(
-                model,
-                BEST_MODEL_PATH,
-                epoch + 1,
-                f"{PRIMARY_BEST_MODE}_{PRIMARY_BEST_KEY}_{_score_suffix(PRIMARY_BEST_THR)}",
-                primary_score,
-            )
-            print(
-                f"   💾 Primary best 저장: {BEST_MODEL_PATH} | "
-                f"{PRIMARY_BEST_MODE} {PRIMARY_BEST_KEY}@{PRIMARY_BEST_THR:.2f}="
-                f"{primary_score:.4f} | Val Loss: {val_loss:.4f}"
-                f"\n      ↳ epoch snapshot: {epoch_best_path}"
-            )
-        else:
-            epochs_no_improve += 1
-            print(
-                f"   ⏳ Primary best 개선 없음 "
-                f"({epochs_no_improve}/{EARLY_STOP_PATIENCE}) | "
-                f"current={primary_score:.4f}, best={best_scores['primary']:.4f}"
-            )
-
-        raw_f1_025 = metric_value(val_metrics, 'raw', 0.25, 'f1')
-
-        if raw_f1_025 > best_scores['raw_f1_025'] + EARLY_STOP_MIN_DELTA:
-            best_scores['raw_f1_025'] = raw_f1_025
-            epoch_best_path = save_best_with_epoch(
-                model,
-                BEST_RAW_F1_025_PATH,
-                epoch + 1,
-                "raw_f1_025",
-                raw_f1_025,
-            )
-            print(
-                f"   💾 Raw F1@0.25 best 저장: {raw_f1_025:.4f} -> "
-                f"{BEST_RAW_F1_025_PATH} ({epoch_best_path})"
-            )
-
-        if val_loss < best_scores['val_loss'] - EARLY_STOP_MIN_DELTA:
-            best_scores['val_loss'] = val_loss
-            best_val_loss = val_loss
-            epoch_best_path = save_best_with_epoch(
-                model,
-                BEST_VAL_LOSS_PATH,
-                epoch + 1,
-                "val_loss",
-                val_loss,
-            )
-            print(
-                f"   💾 Val loss best 저장: {val_loss:.4f} -> "
-                f"{BEST_VAL_LOSS_PATH} ({epoch_best_path})"
-            )
-
-        # ─── Resume용 full checkpoint ─────────────────────
-        torch.save({
-            'epoch': epoch,
-            'model_state': model.state_dict(),
-            'optimizer_state': optimizer.state_dict(),
-            'scaler_state': scaler.state_dict() if scaler is not None else None,
-            'global_update_step': global_update_step,
-            'best_recall': best_recall,
-            'best_val_loss': best_val_loss,
-            'best_scores': best_scores,
-            'epochs_no_improve': epochs_no_improve,
-            'history_records': history_records,
-        }, LAST_CHECKPOINT_PATH)
-        print(f"   💽 Resume 체크포인트 저장: {LAST_CHECKPOINT_PATH}")
 
         # ─── 정기 체크포인트 ──────────────────────────────
         if (epoch + 1) % 10 == 0:
@@ -2133,9 +2804,9 @@ if __name__ == "__main__":
             print(f"   📌 체크포인트 저장: {ckpt_path}")
 
         # ─── Early stop (primary metric 기준) ─────────────
-        if epochs_no_improve >= EARLY_STOP_PATIENCE:
+        if early_stop:
             print(f"\n⚠️  Early Stopping! "
-                  f"Primary metric이 {EARLY_STOP_PATIENCE} epoch 동안 개선 없음.")
+                  f"Primary metric이 {EARLY_STOP_PATIENCE}회 검증 동안 개선 없음.")
             break
 
     print("\n🎉 학습 완료!")

@@ -5,6 +5,7 @@ import os
 import re
 import csv
 import argparse
+import threading
 from collections import deque
 
 import cv2
@@ -15,7 +16,16 @@ from sensor_msgs.msg import CompressedImage, PointCloud2
 from sensor_msgs import point_cloud2
 from morai_msgs.msg import EgoVehicleStatus, ObjectStatusList
 
-from morai_dataset import box_visible_in_any_camera
+from morai_dataset import box_visible_in_any_camera, _box_corners_ego
+from camera_configs import INTRINSICS
+from verify_lidar_camera_overlay import project_body, _BOX_EDGES
+
+import morai_sync
+from morai_sync import (
+    EpochGlitchSynchronizer,
+    EGO_TOPIC, OBJ_TOPIC, LEFT_TOPIC, RIGHT_TOPIC, LIDAR_TOPIC as SYNC_LIDAR_TOPIC,
+    SIDECAR_FIELDS, sidecar_row,
+)
 
 
 # =========================
@@ -69,11 +79,26 @@ VALID_NPC_TYPES = {1}
 VALID_PEDESTRIAN_TYPES = None
 
 
-# 차량은 MORAI 기준점이 중심이 아닐 수 있어서 기존처럼 보정
-VEHICLE_OFFSET_RATIO = 0.2
+# 차량은 MORAI 기준점이 rear axle이라 박스 중심까지 고정 거리를 heading 방향으로 밀어준다.
+# 실측(라이다-카메라 오버레이 대조)으로 확정한 rear axle -> box center 거리(m).
+VEHICLE_REAR_AXLE_TO_CENTER = 1.28
 
-# 보행자는 객체 중심 기준으로 사용
-PEDESTRIAN_OFFSET_RATIO = 0.0
+# 보행자는 기준점이 이미 중심이므로 보정하지 않는다.
+PEDESTRIAN_OFFSET_DIST = 0.0
+
+
+# =========================
+# 기하 보정 디버그 (임시 검증용)
+# =========================
+# True로 바꾸면 length_axis_err/offset_axis_err가 임계값을 넘을 때 예외를 던진다.
+# 지금은 로그로 여러 프레임 값을 눈으로 확인하는 단계라 False로 둔다.
+STRICT_ASSERTS = False
+
+LENGTH_AXIS_ERR_THRESH_DEG = 5.0
+OFFSET_AXIS_ERR_THRESH_DEG = 5.0
+
+# cam_front에 보정된 3D 박스를 그려서 저장할 디버그 오버레이 최대 프레임 수 (0이면 끔)
+GEOMETRY_OVERLAY_MAX_FRAMES = 30
 
 
 CSV_HEADER = [
@@ -144,7 +169,7 @@ def create_next_scenario_dir(dataset_root, prefix="scen", digits=2):
 
 
 def world_to_ego(obj_pos, obj_heading_deg, obj_velocity,
-                 ego_pos, ego_heading_deg, obj_length, offset_ratio):
+                 ego_pos, ego_heading_deg, offset_dist):
     """
     MORAI world 좌표의 객체를 Ego 차량 기준 좌표로 변환.
 
@@ -152,9 +177,11 @@ def world_to_ego(obj_pos, obj_heading_deg, obj_velocity,
       x_e > 0 : Ego 전방
       x_e < 0 : Ego 후방
       y_e     : Ego 좌우 방향
+
+    offset_dist: 기준점(MORAI가 주는 위치)에서 박스 중심까지 heading 방향으로
+                 밀어줄 고정 거리(m). 차량은 rear axle -> center 거리, 보행자는 0.
     """
 
-    offset_dist = obj_length * offset_ratio
     obj_yaw_rad = np.radians(obj_heading_deg)
 
     obj_pos_corrected = np.array([
@@ -172,7 +199,7 @@ def world_to_ego(obj_pos, obj_heading_deg, obj_velocity,
     y_e = -s * dp[0] + c * dp[1]
     z_e = dp[2]
 
-    rel_yaw_raw = np.radians(obj_heading_deg - ego_heading_deg) - np.pi / 2.0
+    rel_yaw_raw = np.radians(obj_heading_deg - ego_heading_deg)
     rel_yaw = np.arctan2(np.sin(rel_yaw_raw), np.cos(rel_yaw_raw))
 
     vx_w, vy_w, vz_w = obj_velocity
@@ -185,6 +212,11 @@ def world_to_ego(obj_pos, obj_heading_deg, obj_velocity,
         rel_yaw,
         np.array([vx_e, vy_e, vz_e], dtype=np.float32)
     )
+
+
+def decode_compressed_image(img_msg):
+    np_arr = np.frombuffer(img_msg.data, np.uint8)
+    return cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
 
 def msg_time_or_now(msg):
@@ -263,52 +295,69 @@ class MoraiLive3Cam3DLabelerCSV:
             os.makedirs(cam_dir, exist_ok=True)
             self.camera_image_dirs[topic] = cam_dir
 
-        self.ego_buffer = deque(maxlen=200)
-        self.obj_buffer = deque(maxlen=200)
-
-        self.camera_buffers = {
-            topic: deque(maxlen=100) for topic in CAMERA_TOPICS.keys()
-        }
-
-        self.lidar_buffer = deque(maxlen=20)
+        # ------------------------------------------------------------------
+        # source-header 기반 epoch/glitch-safe 동기화기 (morai_sync).
+        # 기존 receive-time 버퍼/최근접 매칭을 대체한다. 좌표변환/라벨/오프셋은 불변.
+        #   - Ego/Object/측면카메라/LiDAR를 cam_front source-header 최근접으로 선택
+        #   - Ego/Object 50ms, 측면 100ms, LiDAR 100ms 게이트
+        #   - monotonic ref + epoch jump(0.5s) 감지 + buffer reset + hold-3
+        #   - source header 없음/0 -> receive fallback 금지, drop (bad label보다 drop 우선)
+        # ------------------------------------------------------------------
+        self.sync = EpochGlitchSynchronizer(mode="epoch")
+        # 콜백 스레드 간 synchronizer/sync_log 접근 직렬화용 락 + 종료 플래그.
+        self._lock = threading.RLock()
+        self._shutdown = False
         self._lidar_gaps = []
         self._lidar_miss = 0
+        self._drop_count = 0
+        self._drop_reasons = {}
 
-        self.frame_idx = 0
-        self.last_processed_ref_ts = None
+        self.overlay_dir = os.path.join(dataset_dir, "_geom_debug_overlay")
+        os.makedirs(self.overlay_dir, exist_ok=True)
+        self._overlay_saved_count = 0
 
-        rospy.Subscriber(
+        # 프레임별 sync sidecar 로그 (scenario 단위 append).
+        self.sync_log_path = os.path.join(dataset_dir, "sync_log.csv")
+        self._sync_log_f = open(self.sync_log_path, "w", newline="", encoding="utf-8")
+        self._sync_log_w = csv.writer(self._sync_log_f)
+        self._sync_log_w.writerow(SIDECAR_FIELDS)
+        self._sync_log_f.flush()
+
+        # 종료 시 안전하게 unregister하기 위해 subscriber 핸들을 보관.
+        self._subs = []
+
+        self._subs.append(rospy.Subscriber(
             "/Ego_topic",
             EgoVehicleStatus,
             self.ego_callback,
             queue_size=50
-        )
+        ))
 
-        rospy.Subscriber(
+        self._subs.append(rospy.Subscriber(
             "/Object_topic",
             ObjectStatusList,
             self.object_callback,
             queue_size=50
-        )
+        ))
 
         for topic in CAMERA_TOPICS.keys():
-            rospy.Subscriber(
+            self._subs.append(rospy.Subscriber(
                 topic,
                 CompressedImage,
                 self.camera_callback,
                 callback_args=topic,
                 queue_size=10,
                 buff_size=2**24
-            )
+            ))
 
-        rospy.Subscriber(
+        self._subs.append(rospy.Subscriber(
             LIDAR_TOPIC,
             PointCloud2,
             self.lidar_callback,
             queue_size=2
-        )
+        ))
 
-        rospy.on_shutdown(self._dump_lidar_stats)
+        rospy.on_shutdown(self._on_shutdown)
 
         rospy.loginfo("MORAI live 3-camera 3D CSV labeler started")
         rospy.loginfo("scenario       = %s", self.scenario_name)
@@ -330,164 +379,155 @@ class MoraiLive3Cam3DLabelerCSV:
             MAX_RANGE_Z
         )
 
+    @staticmethod
+    def _src_ts(msg):
+        """source-header timestamp(초). 없거나 0이면 None (receive fallback 금지)."""
+        try:
+            if hasattr(msg, "header"):
+                s = msg.header.stamp.to_sec()
+                if s > 0.0:
+                    return s
+        except Exception:
+            pass
+        return None
+
+    # rospy는 각 subscriber 콜백을 별도 스레드로 디스패치한다. synchronizer 상태
+    # (frame_idx/pending/last_saved_ref/epoch/버퍼)와 sync_log 기록은 공유 자원이므로
+    # push+저장을 콜백당 락으로 직렬화한다. 직렬화하지 않으면 라이브에서 결정 순서가
+    # 뒤섞여 sync_log 역행/frame_id 비연속이 발생한다(오프라인 단일스레드에선 안 보임).
     def ego_callback(self, msg):
-        ts = rospy.Time.now().to_sec()   # header.stamp는 카메라와 다른 시계라 신뢰 불가
-        self.ego_buffer.append((ts, msg))
+        recv = rospy.Time.now().to_sec()
+        src = self._src_ts(msg)
+        with self._lock:
+            if self._shutdown:
+                return
+            self._handle(self.sync.push(EGO_TOPIC, src, recv, msg))
 
     def object_callback(self, msg):
-        ts = rospy.Time.now().to_sec()   # header.stamp는 카메라와 다른 시계라 신뢰 불가
-        self.obj_buffer.append((ts, msg))
+        recv = rospy.Time.now().to_sec()
+        src = self._src_ts(msg)
+        with self._lock:
+            if self._shutdown:
+                return
+            self._handle(self.sync.push(OBJ_TOPIC, src, recv, msg))
 
     def camera_callback(self, img_msg, cam_topic):
-        ts = msg_time_or_now(img_msg)
-        self.camera_buffers[cam_topic].append((ts, img_msg))
-
-        # 진단(임시): 카메라 header.stamp가 rospy.Time.now()와 같은 시계 계열인지 확인용.
-        # diff가 작으면(<0.1s) ego/object의 now() 전환과 정합됨. 검증 후 제거 가능.
-        rospy.loginfo_throttle(
-            5.0,
-            "cam ref_ts=%.3f vs now=%.3f (diff %.3f)",
-            ts,
-            rospy.Time.now().to_sec(),
-            rospy.Time.now().to_sec() - ts
-        )
-
-        # 카메라 메시지가 들어올 때마다 현재 3개 카메라가 모두 모였는지 확인
-        self.try_process_synced_frame()
+        recv = rospy.Time.now().to_sec()
+        src = self._src_ts(img_msg)
+        if cam_topic == REFERENCE_CAMERA_TOPIC:
+            rospy.loginfo_throttle(
+                5.0,
+                "cam_front recv_ts=%.3f src_header_ts=%s (header lag %s)",
+                recv,
+                "%.3f" % src if src is not None else "NONE",
+                "%.3f" % (recv - src) if src is not None else "n/a",
+            )
+        # 모든 카메라를 push. 결정은 cam_front(ref)가 settle된 뒤 나온다.
+        with self._lock:
+            if self._shutdown:
+                return
+            self._handle(self.sync.push(cam_topic, src, recv, img_msg))
 
     def lidar_callback(self, msg):
-        # 라이다는 프레임 트리거가 아니다. 버퍼에만 쌓고, 저장은
-        # /cam_front가 트리거한 try_process_synced_frame에서 비차단으로 매칭한다.
-        ts = msg_time_or_now(msg)
-        self.lidar_buffer.append((ts, msg))
-
-    def try_process_synced_frame(self):
-        ref_buffer = self.camera_buffers[REFERENCE_CAMERA_TOPIC]
-
-        if not ref_buffer:
-            return
-
-        ref_ts, ref_msg = ref_buffer[-1]
-
-        if self.last_processed_ref_ts is not None:
-            if abs(ref_ts - self.last_processed_ref_ts) < 1e-6:
+        # LiDAR도 source-header nearest로 선택된다(latest scan 아님). 버퍼에만 push.
+        recv = rospy.Time.now().to_sec()
+        src = self._src_ts(msg)
+        with self._lock:
+            if self._shutdown:
                 return
+            self._handle(self.sync.push(SYNC_LIDAR_TOPIC, src, recv, msg))
 
-        synced_camera_msgs = {}
+    def _handle(self, decisions):
+        """synchronizer가 반환한 Decision list 처리: save는 저장, drop은 로깅."""
+        for dec in decisions:
+            if dec.action == "save":
+                self._save_frame(dec)
+            elif dec.action == "drop":
+                if dec.reason == "dup_ref":
+                    continue
+                self._log_drop(dec)
 
-        for topic in CAMERA_TOPICS.keys():
-            cam_ts, cam_msg = find_closest_with_ts(
-                self.camera_buffers[topic],
-                ref_ts,
-                self.max_sync_gap
-            )
-
-            if cam_msg is None:
-                rospy.logwarn_throttle(
-                    1.0,
-                    "camera sync fail: topic=%s ref_ts=%.6f",
-                    topic,
-                    ref_ts
-                )
-                return
-
-            synced_camera_msgs[topic] = cam_msg
-
-        ego_msg = find_closest(
-            self.ego_buffer,
-            ref_ts,
-            self.max_sync_gap
+    def _log_drop(self, dec):
+        self._drop_count += 1
+        key = (dec.reason or "").split(":")[0]
+        self._drop_reasons[key] = self._drop_reasons.get(key, 0) + 1
+        self._sync_log_w.writerow(sidecar_row("", "drop", dec.sidecar))
+        self._sync_log_f.flush()
+        rospy.logwarn_throttle(
+            1.0,
+            "frame drop: reason=%s epoch=%s buffer_reset=%s (total drops=%d)",
+            dec.reason, dec.epoch_id, dec.buffer_reset, self._drop_count,
         )
 
-        obj_msg = find_closest(
-            self.obj_buffer,
-            ref_ts,
-            self.max_sync_gap
-        )
+    def _save_frame(self, dec):
+        stem = f"live_{dec.frame_id:06d}"
+        timestamp = dec.ref_src   # 프레임 timestamp = cam_front source header
 
-        if ego_msg is None or obj_msg is None:
-            rospy.logwarn_throttle(
-                1.0,
-                "sync fail: ego=%s object=%s",
-                ego_msg is not None,
-                obj_msg is not None
-            )
-            return
-
-        stem = f"live_{self.frame_idx:06d}"
+        sel = dec.selected
+        ego_msg = sel[EGO_TOPIC][2]
+        obj_msg = sel[OBJ_TOPIC][2]
+        lidar_msg = sel[SYNC_LIDAR_TOPIC][2]
+        synced_camera_msgs = {
+            REFERENCE_CAMERA_TOPIC: dec.ref_msg,
+            LEFT_TOPIC: sel[LEFT_TOPIC][2],
+            RIGHT_TOPIC: sel[RIGHT_TOPIC][2],
+        }
 
         if self.save_images:
             for topic, img_msg in synced_camera_msgs.items():
-                self.save_compressed_image(
-                    img_msg=img_msg,
-                    topic=topic,
-                    stem=stem
-                )
+                self.save_compressed_image(img_msg=img_msg, topic=topic, stem=stem)
 
-        # 비차단 라이다 매칭+저장. 라이다 실패는 프레임을 버리지 않는다
-        # (카메라/ego/object all-or-nothing 게이트는 위에서 이미 통과함).
-        # /lidar3D의 header.stamp는 /cam_front ref_ts와 클록 기준이 달라
-        # 스탬프 비교(find_closest)로는 항상 max_sync_gap을 초과해 실패한다.
-        # 따라서 스탬프 비교 없이 버퍼의 가장 최신 스캔을 그대로 사용한다.
+        # LiDAR는 이제 source-header nearest로 게이트 통과한 스캔(같은 epoch). 통계 기록.
         if self.save_lidar:
-            if len(self.lidar_buffer) > 0:
-                lidar_ts, lidar_msg = self.lidar_buffer[-1]
-                offset = lidar_ts - ref_ts
-                self._lidar_gaps.append(abs(offset))
-                self.save_lidar_pointcloud(stem=stem, msg=lidar_msg)
-                rospy.loginfo_throttle(
-                    2.0,
-                    "lidar saved (stamp offset %+.3f s, not used for matching)",
-                    offset
-                )
-            else:
-                self._lidar_miss += 1
-                rospy.logwarn_throttle(
-                    1.0,
-                    "lidar buffer empty: frame=%06d",
-                    self.frame_idx
-                )
+            self._lidar_gaps.append(abs(sel[SYNC_LIDAR_TOPIC][0] - timestamp))
+            self.save_lidar_pointcloud(stem=stem, msg=lidar_msg)
 
         rows = self.make_label_rows(
-            frame_id=self.frame_idx,
-            timestamp=ref_ts,
+            frame_id=dec.frame_id,
+            timestamp=timestamp,
             ego_msg=ego_msg,
-            obj_msg=obj_msg
+            obj_msg=obj_msg,
         )
+
+        if (
+            GEOMETRY_OVERLAY_MAX_FRAMES > 0
+            and self._overlay_saved_count < GEOMETRY_OVERLAY_MAX_FRAMES
+            and rows
+        ):
+            self.save_geometry_overlay(
+                stem=stem,
+                cam_front_msg=dec.ref_msg,
+                rows=rows,
+            )
 
         self.save_ego_pose(
             stem=stem,
-            frame_id=self.frame_idx,
-            timestamp=ref_ts,
+            frame_id=dec.frame_id,
+            timestamp=timestamp,
             ego_msg=ego_msg,
         )
 
         frame_csv_path = os.path.join(self.csv_dir, f"{stem}.csv")
-
         with open(frame_csv_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(CSV_HEADER)
             writer.writerows(rows)
 
-        if self.frame_idx % 30 == 0:
+        # 프레임별 sync sidecar 기록.
+        self._sync_log_w.writerow(sidecar_row(stem, "save", dec.sidecar))
+        self._sync_log_f.flush()
+
+        if dec.frame_id % 30 == 0:
             num_vehicle = sum(1 for r in rows if r[6] == "vehicle")
             num_ped = sum(1 for r in rows if r[6] == "pedestrian")
-
             rospy.loginfo(
-                "scenario %s | frame %06d | images: 3 | total: %d | vehicle: %d | pedestrian: %d",
-                self.scenario_name,
-                self.frame_idx,
-                len(rows),
-                num_vehicle,
-                num_ped
+                "scenario %s | frame %06d | epoch %s | total: %d | vehicle: %d | pedestrian: %d | drops: %d",
+                self.scenario_name, dec.frame_id, dec.epoch_id,
+                len(rows), num_vehicle, num_ped, self._drop_count,
             )
 
-        self.last_processed_ref_ts = ref_ts
-        self.frame_idx += 1
-
     def save_compressed_image(self, img_msg, topic, stem):
-        np_arr = np.frombuffer(img_msg.data, np.uint8)
-        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        img = decode_compressed_image(img_msg)
 
         if img is None:
             rospy.logwarn("failed to decode compressed image: %s", topic)
@@ -500,25 +540,96 @@ class MoraiLive3Cam3DLabelerCSV:
 
         cv2.imwrite(img_path, img)
 
-    def _dump_lidar_stats(self):
-        if not self._lidar_gaps and not self._lidar_miss:
+    def save_geometry_overlay(self, stem, cam_front_msg, rows):
+        """
+        보정된 3D 박스 코너를 cam_front 원본(1600x900) 이미지에 그려서
+        _geom_debug_overlay/에 저장한다. 육안으로 박스가 차체에 맞는지,
+        길이축이 진행방향과 나란한지 확인하기 위한 임시 검증용.
+        """
+        img = decode_compressed_image(cam_front_msg)
+        if img is None:
             return
 
+        k_raw = INTRINSICS["cam_front"].astype(np.float64)
+        drawn = 0
+
+        for row in rows:
+            class_name = row[6]
+            box_vals = [
+                float(row[7]), float(row[8]), float(row[9]),
+                float(row[13]), float(row[14]), float(row[15]),
+                float(row[16]), float(row[17]),
+                float(row[18]), float(row[19]), float(row[20]),
+            ]
+            corners = _box_corners_ego(box_vals)
+            corners_h = np.concatenate(
+                [corners.astype(np.float64), np.ones((corners.shape[0], 1))], axis=1
+            )
+            u, v, depth, valid = project_body(corners_h, "cam_front", k_raw)
+            inframe = valid & (u >= 0) & (u < img.shape[1]) & (v >= 0) & (v < img.shape[0])
+            if not inframe.any():
+                continue
+
+            color = (0, 255, 0) if class_name == "vehicle" else (0, 165, 255)
+            for a, b in _BOX_EDGES:
+                if not (valid[a] and valid[b]):
+                    continue
+                pa = (int(round(u[a])), int(round(v[a])))
+                pb = (int(round(u[b])), int(round(v[b])))
+                cv2.line(img, pa, pb, color, 2, lineType=cv2.LINE_AA)
+            drawn += 1
+
+        if drawn == 0:
+            return
+
+        out_path = os.path.join(self.overlay_dir, f"{stem}.jpg")
+        cv2.imwrite(out_path, img)
+        self._overlay_saved_count += 1
+        rospy.loginfo(
+            "geom_overlay saved (%d/%d): %s (%d boxes drawn)",
+            self._overlay_saved_count, GEOMETRY_OVERLAY_MAX_FRAMES, out_path, drawn
+        )
+
+    def _on_shutdown(self):
+        # 1) 새 콜백 유입 차단(subscriber unregister). 2) 락 안에서 shutdown 플래그 세팅 →
+        #    이 시점 이후 in-flight 콜백은 즉시 반환. 락 획득 자체가 진행 중이던 _save_frame
+        #    (파일+sidecar row+frame_idx 증가)이 끝날 때까지 대기하므로 마지막 프레임의
+        #    sidecar 누락(파일 306 vs row 305 같은 경계 불일치)을 방지한다.
+        for s in getattr(self, "_subs", []):
+            try:
+                s.unregister()
+            except Exception:
+                pass
+
+        with self._lock:
+            self._shutdown = True
+            # 종료 시 settle 대기 중이던 ref를 모두 결정(flush).
+            try:
+                self._handle(self.sync.flush())
+            except Exception as e:
+                rospy.logwarn("sync flush on shutdown failed: %s", e)
+            self._finalize_locked()
+
+    def _finalize_locked(self):
         if self._lidar_gaps:
             avg_gap = sum(self._lidar_gaps) / len(self._lidar_gaps)
             max_gap = max(self._lidar_gaps)
             rospy.loginfo(
-                "lidar stamp offset stats: n=%d avg=%.3f s max=%.3f s (clock mismatch, informational only)",
+                "lidar source-header offset stats: n=%d avg=%.3f s max=%.3f s (같은 소스클럭, gated<=100ms)",
                 len(self._lidar_gaps),
                 avg_gap,
-                max_gap
+                max_gap,
             )
 
-        if self._lidar_miss:
-            rospy.logwarn(
-                "lidar buffer was empty for %d frame(s)",
-                self._lidar_miss
-            )
+        rospy.loginfo(
+            "sync summary: saved=%d drops=%d drop_reasons=%s | sidecar=%s",
+            self.sync.frame_idx, self._drop_count, self._drop_reasons, self.sync_log_path,
+        )
+
+        try:
+            self._sync_log_f.close()
+        except Exception:
+            pass
 
     def save_lidar_pointcloud(self, stem, msg):
         field_names = [f.name for f in msg.fields]
@@ -575,7 +686,7 @@ class MoraiLive3Cam3DLabelerCSV:
                     ego_pos=ego_pos,
                     ego_heading=ego_heading,
                     class_id=VEHICLE_CLASS_ID,
-                    offset_ratio=VEHICLE_OFFSET_RATIO
+                    offset_dist=VEHICLE_REAR_AXLE_TO_CENTER
                 )
 
                 if row is not None:
@@ -599,7 +710,7 @@ class MoraiLive3Cam3DLabelerCSV:
                     ego_pos=ego_pos,
                     ego_heading=ego_heading,
                     class_id=PEDESTRIAN_CLASS_ID,
-                    offset_ratio=PEDESTRIAN_OFFSET_RATIO
+                    offset_dist=PEDESTRIAN_OFFSET_DIST
                 )
 
                 if row is not None:
@@ -609,7 +720,7 @@ class MoraiLive3Cam3DLabelerCSV:
 
     def object_to_csv_row(self, frame_id, timestamp, object_source,
                           object_index, obj, ego_pos, ego_heading,
-                          class_id, offset_ratio):
+                          class_id, offset_dist):
         obj_pos = [
             obj.position.x,
             obj.position.y,
@@ -628,11 +739,10 @@ class MoraiLive3Cam3DLabelerCSV:
             obj.size.z
         ]
 
-        w = float(obj_size[0])
-        l = float(obj_size[1])
+        # MORAI obj.size: x=길이(진행방향), y=폭, z=높이
+        l = float(obj_size[0])
+        w = float(obj_size[1])
         h = float(obj_size[2])
-
-        obj_length = l
 
         pos_ego, rel_yaw, vel_ego = world_to_ego(
             obj_pos=obj_pos,
@@ -640,8 +750,7 @@ class MoraiLive3Cam3DLabelerCSV:
             obj_velocity=obj_vel,
             ego_pos=ego_pos,
             ego_heading_deg=ego_heading,
-            obj_length=obj_length,
-            offset_ratio=offset_ratio
+            offset_dist=offset_dist
         )
 
         # =========================
@@ -669,6 +778,22 @@ class MoraiLive3Cam3DLabelerCSV:
             sin_yaw, cos_yaw,
             float(vel_ego[0]), float(vel_ego[1]), float(vel_ego[2]),
         ]
+
+        self.log_vehicle_geometry_debug(
+            object_source=object_source,
+            object_index=object_index,
+            class_name=CLASS_NAMES[class_id],
+            obj_pos=obj_pos,
+            obj_heading_deg=obj.heading,
+            ego_pos=ego_pos,
+            ego_heading_deg=ego_heading,
+            offset_dist=offset_dist,
+            pos_ego=pos_ego,
+            rel_yaw=rel_yaw,
+            h=h,
+            box_vals=box_for_visibility,
+        )
+
         if not box_visible_in_any_camera(box_for_visibility):
             return None
 
@@ -699,6 +824,85 @@ class MoraiLive3Cam3DLabelerCSV:
         ]
 
         return row
+
+    def log_vehicle_geometry_debug(self, object_source, object_index, class_name,
+                                    obj_pos, obj_heading_deg, ego_pos, ego_heading_deg,
+                                    offset_dist, pos_ego, rel_yaw, h, box_vals):
+        """
+        기준점 보정이 의도대로 됐는지 확인하는 디버그 로그 (STRICT_ASSERTS=False면 로그만).
+
+        - offset_axis_err : 기준점 -> 박스중심 이동 벡터가 차량 heading 전방과
+                            나란한지(부호 반전 등 회귀를 잡아내는 용도).
+        - length_axis_err : _box_corners_ego로 실제 생성한 박스 코너의 앞/뒤면
+                            중심을 잇는 축이 객체 heading 방향과 나란한지.
+        - cam_front_proj  : 보정 전/후 박스 중심을 cam_front에 투영한 픽셀 좌표.
+        """
+        tag = f"{object_source}#{object_index}({class_name})"
+
+        if offset_dist == 0.0:
+            return
+
+        heading_ego = np.radians(obj_heading_deg - ego_heading_deg)
+
+        pos_ego_raw, _, _ = world_to_ego(
+            obj_pos=obj_pos,
+            obj_heading_deg=obj_heading_deg,
+            obj_velocity=[0.0, 0.0, 0.0],
+            ego_pos=ego_pos,
+            ego_heading_deg=ego_heading_deg,
+            offset_dist=0.0,
+        )
+
+        offset_vec = pos_ego[:2] - pos_ego_raw[:2]
+        offset_dir = float(np.arctan2(offset_vec[1], offset_vec[0]))
+        offset_axis_err_deg = float(np.degrees(np.arctan2(
+            np.sin(offset_dir - heading_ego), np.cos(offset_dir - heading_ego)
+        )))
+
+        corners = _box_corners_ego(box_vals)  # (9,3): 0~7 코너, 8 center
+        front_mid = corners[0:4].mean(axis=0)
+        back_mid = corners[4:8].mean(axis=0)
+        length_axis = front_mid[:2] - back_mid[:2]
+        length_axis_angle = float(np.arctan2(length_axis[1], length_axis[0]))
+        length_axis_err_deg = float(np.degrees(np.arctan2(
+            np.sin(length_axis_angle - heading_ego), np.cos(length_axis_angle - heading_ego)
+        )))
+
+        def _project_center_to_cam_front(pos_ego_pt):
+            center = np.array(
+                [pos_ego_pt[0], pos_ego_pt[1], pos_ego_pt[2] + h * 0.5, 1.0],
+                dtype=np.float64
+            )
+            u, v, depth, valid = project_body(center[np.newaxis, :], "cam_front", INTRINSICS["cam_front"])
+            if not valid[0]:
+                return "behind_cam"
+            return f"({u[0]:.0f},{v[0]:.0f},d={depth[0]:.1f}m)"
+
+        proj_pre = _project_center_to_cam_front(pos_ego_raw)
+        proj_post = _project_center_to_cam_front(pos_ego)
+
+        is_bad = (
+            abs(offset_axis_err_deg) > OFFSET_AXIS_ERR_THRESH_DEG or
+            abs(length_axis_err_deg) > LENGTH_AXIS_ERR_THRESH_DEG
+        )
+        log_fn = rospy.logwarn_throttle if is_bad else rospy.loginfo_throttle
+
+        log_fn(
+            2.0,
+            "geom_debug %s offset_dist=%.3f heading_ego=%+.2fdeg rel_yaw=%+.2fdeg "
+            "offset_axis_err=%+.2fdeg length_axis_err=%+.2fdeg "
+            "cam_front_proj pre=%s post=%s",
+            tag, offset_dist, np.degrees(heading_ego), np.degrees(rel_yaw),
+            offset_axis_err_deg, length_axis_err_deg, proj_pre, proj_post
+        )
+
+        if STRICT_ASSERTS:
+            assert abs(offset_axis_err_deg) <= OFFSET_AXIS_ERR_THRESH_DEG, (
+                f"{tag} offset_axis_err={offset_axis_err_deg:.2f}deg exceeds threshold"
+            )
+            assert abs(length_axis_err_deg) <= LENGTH_AXIS_ERR_THRESH_DEG, (
+                f"{tag} length_axis_err={length_axis_err_deg:.2f}deg exceeds threshold"
+            )
 
 
 def main():

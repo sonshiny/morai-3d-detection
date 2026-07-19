@@ -6,11 +6,12 @@ from scipy.optimize import linear_sum_assignment
 BOX_SCALE = [50., 50., 3.,
              5.,  5., 3.,
              1.,  1.,
-             30., 30., 5.]
+             15., 15., 3.]   # velocity는 m/s (labels_3d_v2 기준; 도심 ~15m/s 스케일)
 
-# 단일프레임: velocity(8,9,10) 제외. temporal 복구 시 11로 변경.
-# box regression/cost에는 앞 8채널(0:8 = x,y,z,ln_w,ln_l,ln_h,sin_yaw,cos_yaw)만 사용.
-REG_CHANNELS = 8
+# SparseDrive 방식: Hungarian matching cost에는 velocity를 넣지 않고(8채널),
+# regression loss에는 vx,vy까지 포함(10채널). vz(ch10)는 GT가 z 지터 유래라 제외.
+MATCH_CHANNELS = 8   # x,y,z,ln_w,ln_l,ln_h,sin_yaw,cos_yaw
+REG_CHANNELS = 10    # + vx,vy
 
 
 class FocalLoss(nn.Module):
@@ -78,8 +79,8 @@ class HungarianMatcher(nn.Module):
         gt_classes = gt_classes.clamp(min=0, max=pred_classes.shape[-1] - 1)
         cost_class = -out_prob[:, gt_classes]
 
-        pred_norm = pred_boxes[:, :REG_CHANNELS] / scale[:REG_CHANNELS]
-        gt_norm = gt_boxes[:, :REG_CHANNELS] / scale[:REG_CHANNELS]
+        pred_norm = pred_boxes[:, :MATCH_CHANNELS] / scale[:MATCH_CHANNELS]
+        gt_norm = gt_boxes[:, :MATCH_CHANNELS] / scale[:MATCH_CHANNELS]
         cost_bbox = torch.cdist(pred_norm, gt_norm, p=1)
 
         C = self.cost_class * cost_class + self.cost_bbox * cost_bbox

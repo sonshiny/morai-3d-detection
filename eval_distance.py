@@ -75,8 +75,18 @@ def main():
     ).to(device)
 
     # ─── best_model.pth (순수 state_dict) 로드 ────────────
-    state_dict = torch.load(BEST_MODEL_PATH, map_location=device)
-    model.load_state_dict(state_dict)
+    checkpoint = torch.load(BEST_MODEL_PATH, map_location=device)
+    state_dict = (
+        checkpoint['model_state']
+        if isinstance(checkpoint, dict) and 'model_state' in checkpoint
+        else checkpoint
+    )
+    model_state = model.state_dict()
+    filtered = {
+        k: v for k, v in state_dict.items()
+        if k in model_state and v.shape == model_state[k].shape
+    }
+    model.load_state_dict(filtered, strict=False)
     print(f"[load] state_dict 로드 완료: {os.path.abspath(BEST_MODEL_PATH)}")
 
     # ─── val 데이터셋/로더 (train.py:1731, 1750-1751과 동일) ─
