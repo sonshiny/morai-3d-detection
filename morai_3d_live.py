@@ -303,7 +303,14 @@ class MoraiLive3Cam3DLabelerCSV:
         #   - monotonic ref + epoch jump(0.5s) 감지 + buffer reset + hold-3
         #   - source header 없음/0 -> receive fallback 금지, drop (bad label보다 drop 우선)
         # ------------------------------------------------------------------
-        self.sync = EpochGlitchSynchronizer(mode="epoch")
+        # mode="receive"(전 토픽 recv축 최근접)는 scen17 오염 사고로 금지:
+        # 카메라 구독 백로그(+66~76s, sync_log 실측)까지 recv 매칭이 무시해
+        # 이미지·GT가 서로 다른 심시각으로 짝지어졌다.
+        # [2026-07-19 갱신] 26.R1 header 시간축 3분화(카메라=클럭 A / Ego·Object=
+        # 클럭 B / LiDAR=A 계열이나 별도 오프셋·slope, scen18·19 라이브 실측)
+        # → epoch 모드는 morai_sync의 혼합 매칭 사용: 카메라=src(클럭 A) 게이트,
+        # Ego/Object/LiDAR=recv축 게이트(RECV_TOL). 전체 receive 전환 절대 금지.
+        self.sync = EpochGlitchSynchronizer()  # mode="epoch" (혼합 매칭)
         # 콜백 스레드 간 synchronizer/sync_log 접근 직렬화용 락 + 종료 플래그.
         self._lock = threading.RLock()
         self._shutdown = False
@@ -326,18 +333,25 @@ class MoraiLive3Cam3DLabelerCSV:
         # 종료 시 안전하게 unregister하기 위해 subscriber 핸들을 보관.
         self._subs = []
 
+        # buff_size 명시: rospy 기본 buff_size(64KiB)는 고레이트/대형 메시지에서
+        # 소켓 백로그를 만들어 콜백이 과거 메시지를 받게 한다(scen17 카메라 실측
+        # +66~76s; 적용 후 scen18 시작 lag 0.239s로 개선). queue_size×메시지
+        # 크기보다 크게 잡는다. Ego/Object는 recv축 매칭이므로 백로그가 곧 GT
+        # 오염이 된다 — 특히 중요.
         self._subs.append(rospy.Subscriber(
             "/Ego_topic",
             EgoVehicleStatus,
             self.ego_callback,
-            queue_size=50
+            queue_size=50,
+            buff_size=2**22
         ))
 
         self._subs.append(rospy.Subscriber(
             "/Object_topic",
             ObjectStatusList,
             self.object_callback,
-            queue_size=50
+            queue_size=50,
+            buff_size=2**24
         ))
 
         for topic in CAMERA_TOPICS.keys():
@@ -350,11 +364,14 @@ class MoraiLive3Cam3DLabelerCSV:
                 buff_size=2**24
             ))
 
+        # PointCloud2 ~460KB/msg: 기본 buff_size로는 상시 지연(scen17 실측 카메라 대비
+        # -1.9s). 투영/기하 경로는 불변 — 구독 버퍼만 확대.
         self._subs.append(rospy.Subscriber(
             LIDAR_TOPIC,
             PointCloud2,
             self.lidar_callback,
-            queue_size=2
+            queue_size=2,
+            buff_size=2**26
         ))
 
         rospy.on_shutdown(self._on_shutdown)
@@ -422,6 +439,16 @@ class MoraiLive3Cam3DLabelerCSV:
                 "%.3f" % src if src is not None else "NONE",
                 "%.3f" % (recv - src) if src is not None else "n/a",
             )
+            # 구독 백로그 조기경보: recv-src가 초 단위로 벌어지면 배달 지연이
+            # 쌓이는 중(scen17 사고 서명: 시작부터 +66s). 즉시 수집을 중단하고
+            # 노드 재시작 + 네트워크/부하 점검할 것.
+            if src is not None and (recv - src) > 2.0:
+                rospy.logerr_throttle(
+                    5.0,
+                    "[BACKLOG] cam_front 배달지연 %.1fs > 2s — 구독 백로그 의심. "
+                    "이 상태의 수집물은 GT 오염(scen17 사고). 수집 중단 권장.",
+                    recv - src,
+                )
         # 모든 카메라를 push. 결정은 cam_front(ref)가 settle된 뒤 나온다.
         with self._lock:
             if self._shutdown:
@@ -461,7 +488,9 @@ class MoraiLive3Cam3DLabelerCSV:
 
     def _save_frame(self, dec):
         stem = f"live_{dec.frame_id:06d}"
-        timestamp = dec.ref_src   # 프레임 timestamp = cam_front source header
+        # epoch 모드: ref_src(=cam_front source header)가 촬영시각. recv는 배달시각이라
+        # 백로그 시 수십 초 늦다(scen17 실측 +74s). save 결정은 항상 ref_src를 가진다.
+        timestamp = dec.ref_src if dec.ref_src is not None else dec.ref_recv
 
         sel = dec.selected
         ego_msg = sel[EGO_TOPIC][2]
@@ -477,9 +506,10 @@ class MoraiLive3Cam3DLabelerCSV:
             for topic, img_msg in synced_camera_msgs.items():
                 self.save_compressed_image(img_msg=img_msg, topic=topic, stem=stem)
 
-        # LiDAR는 이제 source-header nearest로 게이트 통과한 스캔(같은 epoch). 통계 기록.
+        # LiDAR는 recv축 nearest로 게이트 통과한 스캔(클럭 A 계열이나 별도 오프셋/
+        # slope라 src 비교 불가). 매칭 축과 동일한 recv gap을 통계로 기록.
         if self.save_lidar:
-            self._lidar_gaps.append(abs(sel[SYNC_LIDAR_TOPIC][0] - timestamp))
+            self._lidar_gaps.append(abs(sel[SYNC_LIDAR_TOPIC][1] - dec.ref_recv))
             self.save_lidar_pointcloud(stem=stem, msg=lidar_msg)
 
         rows = self.make_label_rows(
@@ -615,7 +645,7 @@ class MoraiLive3Cam3DLabelerCSV:
             avg_gap = sum(self._lidar_gaps) / len(self._lidar_gaps)
             max_gap = max(self._lidar_gaps)
             rospy.loginfo(
-                "lidar source-header offset stats: n=%d avg=%.3f s max=%.3f s (같은 소스클럭, gated<=100ms)",
+                "lidar recv-gap stats: n=%d avg=%.3f s max=%.3f s (recv축 nearest, gated<=RECV_TOL)",
                 len(self._lidar_gaps),
                 avg_gap,
                 max_gap,

@@ -3,9 +3,14 @@
 """MORAI source-header 기반 epoch/glitch-safe 프레임 동기화기.
 
 배경 (geom_verify로 검증됨):
-  * MORAI의 모든 토픽 header.stamp는 하나의 공통 source clock에서 나온다.
-    이 source clock은 WSL wall clock보다 ~9% 빠르지만(slope a≈1.0899) 모든
-    토픽이 같은 slope를 공유하므로 header 값끼리는 직접 비교 가능하다.
+  * [2026-07-19 수정] "모든 토픽이 공통 source clock"이라는 기존 전제는 MORAI 26.R1
+    에서 깨졌다. 라이브 실측으로 시간축이 셋: 카메라 3대(클럭 A, 상호 비교 가능),
+    Ego/Object(독립 클럭 B, wall 대비 -1418s), LiDAR(클럭 A 계열이나 별도
+    오프셋 -1.5s + 별도 slope로 드리프트).
+    => epoch 모드는 카메라만 src 매칭, Ego/Object/LiDAR는 recv축 혼합 매칭
+       (RECV_MATCH_TOPICS/RECV_TOL 참조). 같은 클럭 토픽끼리만 header 비교.
+  * 클럭 A는 WSL wall clock보다 ~9% 빠르지만(slope a≈1.0899) A 토픽끼리 같은
+    slope를 공유하므로 header 값끼리는 직접 비교 가능하다.
     => 절대 age나 공통 slope로 stale 판정하지 않는다. source header끼리만 비교.
   * receive-time 최근접(기존 production)은 source clock glitch 구간에서 서로 다른
     타임라인(정상 vs +1.25s)을 결합해 ~3% 프레임을 최대 1.3s 오배치했다.
@@ -50,6 +55,37 @@ TOPIC_TOL = {
 
 # receive-time 모드(A)의 기존 production 허용오차.
 RECEIVE_GAP = 0.10
+
+# ---------------------------------------------------------------------------
+# 혼합 매칭 (epoch 모드 전용): Ego/Object/LiDAR는 recv축 최근접으로 선택.
+# MORAI 26.R1의 header 시간축은 셋으로 갈라졌다(전부 라이브 실측):
+#   * 카메라 3대: 클럭 A (상호 ±0.4s 이내, src 비교 가능) → src 매칭 유지
+#   * Ego/Object: 독립 클럭 B — scen18 실측 Ego header가 wall 대비 -1418s
+#     (수집 정지, now=1784465930에서 cam=-4s, Ego=-1418s) → src 게이트 100% drop
+#   * LiDAR: 클럭 A 계열이지만 별도 오프셋+slope — scen19 프로브 실측
+#     cam_front 오프셋 -9.5s(slope 1.0071) vs lidar -11.0s(slope 1.0021),
+#     즉 ~1.5s 뒤처진 채 계속 드리프트 → src 게이트(100ms) 100% drop
+#     (scen19 saved=0, 726 drop 전부 sync_gap:/lidar3D:src_gap=0.6~1.2s).
+# 카메라는 계속 src(클럭 A) 매칭 — scen17 사고(전체 receive 전환으로 카메라
+# 백로그까지 무시)의 재발 금지. 저장 timestamp도 ref_src(촬영시각) 유지.
+# ---------------------------------------------------------------------------
+RECV_MATCH_TOPICS = {EGO_TOPIC, OBJ_TOPIC, LIDAR_TOPIC}
+
+# recv축 게이트.
+#   ego/obj 확정값(프로브 실측): ego p99=43.8ms/max=53.8ms, obj p99=44.4ms/max=80.5ms.
+#     0.10s면 99% 통과하며 큰 gap은 GT 정확도를 위해 drop. 0.17s는 최대 1.7m 오차로 배제.
+#   lidar 잠정값: 1주기(8.5Hz→118ms) = 인접 스캔 경계. nearest gap은 정상 상태에서
+#     반주기(59ms) 이내이고(scen17 latest-age 중앙값 63ms가 주기 기하 확인),
+#     1주기 초과는 인접 스캔 부재(배달 스톨) → drop이 맞다. 프로브 p99/max로 확정할 것.
+#   lidar는 latest가 아닌 nearest: epoch 모드는 settle(0.15s) 후 결정하므로 latest는
+#     이미지보다 최대 ~150ms 미래 스캔을 잡는 전방 편향(나이 [-150,+118]ms 비대칭).
+#     nearest는 |gap|<=반주기로 대칭·유계. (구 receive 모드 latest는 즉시 결정이라
+#     nearest-과거와 근사했던 것 — settle 있는 epoch에선 성립 안 함.)
+RECV_TOL = {
+    EGO_TOPIC: 0.10,
+    OBJ_TOPIC: 0.10,
+    LIDAR_TOPIC: 0.12,
+}
 
 # epoch jump 임계. 근거(동일 bag 분포):
 #   정상 카메라 forward header dt max ≈ 151~178ms (p99 ≈ 146~171ms).
@@ -205,18 +241,32 @@ class EpochGlitchSynchronizer(object):
     def _valid_src(self, s):
         return s is not None and s > 0.0
 
-    # ---------- 선택 (source-header nearest + 게이트) ----------
-    def _select_by_header(self, ref_src):
-        """모든 필수 토픽을 source-header 최근접으로 선택. 게이트 위반 시 (None, 실패토픽, dt맵)."""
+    # ---------- 선택 (source-header nearest + 게이트, epoch은 ego/obj recv 혼합) ----------
+    def _select_by_header(self, ref_src, ref_recv=None):
+        """필수 토픽 선택. 게이트 위반 시 (None, 실패상세, dt맵).
+
+        ref_recv가 주어지면(epoch 모드) RECV_MATCH_TOPICS(Ego/Object, 클럭 B)는
+        recv축 최근접 + RECV_TOL 게이트로 선택하고, 나머지(카메라/LiDAR, 클럭 A)는
+        기존 source-header 최근접 + TOPIC_TOL 게이트 그대로.
+        ref_recv=None(header B 모드)이면 전 토픽 순수 source-header 매칭(기존 동작).
+        실패상세 문자열에는 실측 gap을 포함해 sync_log drop_reason으로 남긴다.
+        """
         selected = {}
         dts = {}
         for t in self.sel_topics:
-            best, gap = _nearest(self.buffers[t], ref_src)
+            use_recv = ref_recv is not None and t in RECV_MATCH_TOPICS
+            if use_recv:
+                best, gap = _nearest_recv(self.buffers[t], ref_recv)
+                tol = RECV_TOL[t]
+            else:
+                best, gap = _nearest(self.buffers[t], ref_src)
+                tol = self.topic_tol[t]
             if best is None:
-                return None, t, dts
+                return None, "%s:empty" % t, dts
             dts[t] = best[0] - ref_src
-            if gap > self.topic_tol[t]:
-                return None, t, dts
+            if gap > tol:
+                axis = "recv" if use_recv else "src"
+                return None, "%s:%s_gap=%.3fs" % (t, axis, gap), dts
             selected[t] = best
         return selected, None, dts
 
@@ -299,10 +349,10 @@ class EpochGlitchSynchronizer(object):
                             sidecar=self._sidecar(s, r, None, self.epoch_id, False,
                                                   "ref_not_monotonic"))
 
-        # 4. 필수 토픽 source-header 최근접 선택 + 게이트
-        selected, fail_topic, _ = self._select_by_header(s)
+        # 4. 필수 토픽 선택 + 게이트 (카메라/LiDAR=src축, Ego/Object=recv축 혼합)
+        selected, fail_detail, _ = self._select_by_header(s, ref_recv=r)
         if selected is None:
-            reason = "sync_gap:%s" % fail_topic
+            reason = "sync_gap:%s" % fail_detail
             return Decision("drop", reason=reason, ref_src=s, ref_recv=r,
                             ref_msg=msg, epoch_id=self.epoch_id,
                             sidecar=self._sidecar(s, r, None, self.epoch_id, False,
@@ -318,7 +368,12 @@ class EpochGlitchSynchronizer(object):
         return dec
 
     def _prune_far_from_floor(self, floor):
+        # floor는 클럭 A(ref) 시각. 클럭 B인 recv-매칭 토픽(Ego/Object)의 src와는
+        # 비교 불가이므로 프루닝 제외 — 안 그러면 epoch jump마다 버퍼 전멸한다.
+        # (이들의 staleness는 deque maxlen(200개 ≈ 46Hz 4.3s)이 이미 바운드.)
         for t in self.buffers:
+            if t in RECV_MATCH_TOPICS:
+                continue
             buf = self.buffers[t]
             kept = [it for it in buf if abs(it[0] - floor) <= self.epoch_jump_thresh]
             buf.clear()
@@ -331,9 +386,9 @@ class EpochGlitchSynchronizer(object):
                             ref_recv=r,
                             sidecar=self._sidecar(s, r, None, 0, False,
                                                   "ref_no_source_header"))
-        selected, fail_topic, _ = self._select_by_header(s)
+        selected, fail_detail, _ = self._select_by_header(s)
         if selected is None:
-            reason = "sync_gap:%s" % fail_topic
+            reason = "sync_gap:%s" % fail_detail
             return Decision("drop", reason=reason, ref_src=s, ref_recv=r,
                             ref_msg=msg, epoch_id=0,
                             sidecar=self._sidecar(s, r, None, 0, False, reason))
