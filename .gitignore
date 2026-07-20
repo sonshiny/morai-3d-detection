@@ -30,3 +30,21 @@ __pycache__/
 
 # 데이터셋 (11GB, 별도 외장 백업)
 dataset/
+
+# 세션 임시/진단
+_tmp*
+*_out/
+scratch*.py
+*.log
+
+# 백업 파일 (확장명까지)
+*.bak*
+
+# 검증 산출물
+verify_output/
+geom_verify/
+
+# 생성 anchor/split (이미 추적 중인 건 별도 처리함)
+anchor_kmeans_*.npy
+anchor_kmeans_meta.json
+dataset_split_*.json

@@ -29,12 +29,24 @@ CLASS_COLORS = {0: (0, 255, 0),   1: (0, 165, 255)}   # green, orange (BGR)
 def load_model_weights(model, weights_path, device):
     checkpoint = torch.load(weights_path, map_location=device)
     if isinstance(checkpoint, dict) and 'model_state' in checkpoint:
-        model.load_state_dict(checkpoint['model_state'])
+        state_dict = checkpoint['model_state']
         epoch = checkpoint.get('epoch')
         if epoch is not None:
             print(f"[모델] full checkpoint 감지: epoch={epoch}")
-        return
-    model.load_state_dict(checkpoint)
+    else:
+        state_dict = checkpoint
+    model_state = model.state_dict()
+    filtered = {
+        k: v for k, v in state_dict.items()
+        if k in model_state and v.shape == model_state[k].shape
+    }
+    missing, unexpected = model.load_state_dict(filtered, strict=False)
+    skipped = len(state_dict) - len(filtered)
+    if skipped or missing or unexpected:
+        print(
+            f"[weights] loaded={len(filtered)} skipped={skipped} "
+            f"missing={len(missing)} unexpected={len(unexpected)}"
+        )
 
 
 def combine_scores(fg_scores, quality, mode):

@@ -18,16 +18,36 @@ DEFAULT_K = 900
 DEFAULT_XY_OUT = 'anchor_kmeans_xy.npy'
 DEFAULT_FULL_OUT = 'anchor_kmeans_full.npy'
 DEFAULT_META_OUT = 'anchor_kmeans_meta.json'
+DEFAULT_SPLIT_OUT = 'dataset_split_v11.json'
+DEFAULT_SCENARIOS = [f'scen{i:02d}' for i in range(1, 61)]
+DEFAULT_VAL_SCENARIOS = [
+    'scen08', 'scen18', 'scen23', 'scen30',
+    'scen32', 'scen33', 'scen41', 'scen54',
+]
+LABEL_DIR_NAME = 'labels_3d_v2'
+
+
+def scenario_sort_key(name):
+    if name.startswith('scen') and name[4:].isdigit():
+        return int(name[4:])
+    return 10**9
 
 
 def list_scenarios(dataset_root):
-    scen_names = sorted([
-        d for d in os.listdir(dataset_root)
-        if os.path.isdir(os.path.join(dataset_root, d, 'labels_3d'))
-    ])
+    scen_names = [
+        name for name in os.listdir(dataset_root)
+        if name.startswith('scen') and name[4:].isdigit()
+        if os.path.isdir(os.path.join(dataset_root, name, LABEL_DIR_NAME))
+    ]
+    scen_names = sorted(scen_names, key=scenario_sort_key)
     if not scen_names:
         raise FileNotFoundError(
-            f"[ERROR] {dataset_root} 아래에 labels_3d 폴더를 가진 시나리오가 없습니다."
+            f"[ERROR] {dataset_root} 아래에 {LABEL_DIR_NAME} 폴더를 가진 scen01~scen60이 없습니다."
+        )
+    missing = []
+    if missing:
+        raise FileNotFoundError(
+            f"[ERROR] 확정 데이터셋 scen01~scen60 중 {LABEL_DIR_NAME} 누락: {missing}"
         )
     return scen_names
 
@@ -35,8 +55,7 @@ def list_scenarios(dataset_root):
 def resolve_val_scenarios(dataset_root, val_scenarios):
     scen_names = list_scenarios(dataset_root)
     if val_scenarios is None:
-        n_val = min(5, len(scen_names))
-        return scen_names[-n_val:]
+        return list(DEFAULT_VAL_SCENARIOS)
 
     val_scenarios = list(val_scenarios)
     unknown = [name for name in val_scenarios if name not in scen_names]
@@ -66,10 +85,30 @@ def iter_split_label_files(dataset_root, val_scenarios, split='train'):
         )
 
     for scen_name in selected:
-        label_dir = os.path.join(dataset_root, scen_name, 'labels_3d')
+        label_dir = os.path.join(dataset_root, scen_name, LABEL_DIR_NAME)
         for file_name in sorted(os.listdir(label_dir)):
             if file_name.endswith('.csv'):
                 yield os.path.join(label_dir, file_name)
+
+
+def row_to_box_v2(row, z_mode='center'):
+    w = float(row['w'])
+    l = float(row['l'])
+    h = float(row['h'])
+    yaw = float(row['yaw_ego'])
+    z_center = float(row['z_center'])
+    if z_mode == 'center':
+        z = z_center
+    elif z_mode == 'bottom':
+        z = z_center - h * 0.5
+    else:
+        raise ValueError(f"z_mode는 'center' 또는 'bottom'이어야 합니다: {z_mode}")
+    return [
+        float(row['x']), float(row['y']), z,
+        np.log(max(w, 1e-6)), np.log(max(l, 1e-6)), np.log(max(h, 1e-6)),
+        np.sin(yaw), np.cos(yaw),
+        float(row['vx_ego']), float(row['vy_ego']), float(row['vz']),
+    ]
 
 
 def collect_boxes(dataset_root, val_scenarios):
@@ -77,15 +116,53 @@ def collect_boxes(dataset_root, val_scenarios):
     for path in iter_split_label_files(dataset_root, val_scenarios, split='train'):
         with open(path, newline='', encoding='utf-8') as f:
             for row in csv.DictReader(f):
-                boxes.append([
-                    float(row['x']),       float(row['y']),       float(row['z']),
-                    float(row['ln_w']),    float(row['ln_l']),    float(row['ln_h']),
-                    float(row['sin_yaw']), float(row['cos_yaw']),
-                    float(row['vx']),      float(row['vy']),      float(row['vz']),
-                ])
-                if not box_visible_in_any_camera(boxes[-1]):
-                    boxes.pop()
+                box_center = row_to_box_v2(row, z_mode='center')
+                box_bottom = row_to_box_v2(row, z_mode='bottom')
+                if box_visible_in_any_camera(box_bottom):
+                    boxes.append(box_center)
     return np.asarray(boxes, dtype=np.float32)
+
+
+def collect_split_stats(dataset_root, scenarios):
+    stats = {
+        'num_scenarios': len(scenarios),
+        'num_frames': 0,
+        'num_nonempty_frames': 0,
+        'num_boxes': 0,
+        'num_vehicle_boxes': 0,
+        'num_pedestrian_boxes': 0,
+    }
+    per_scenario = {}
+    for scen_name in scenarios:
+        label_dir = os.path.join(dataset_root, scen_name, LABEL_DIR_NAME)
+        scen_stats = {
+            'num_frames': 0,
+            'num_nonempty_frames': 0,
+            'num_boxes': 0,
+            'num_vehicle_boxes': 0,
+            'num_pedestrian_boxes': 0,
+        }
+        for file_name in sorted(os.listdir(label_dir)):
+            if not file_name.endswith('.csv'):
+                continue
+            scen_stats['num_frames'] += 1
+            has_box = False
+            with open(os.path.join(label_dir, file_name), newline='', encoding='utf-8') as f:
+                for row in csv.DictReader(f):
+                    has_box = True
+                    cls_id = int(float(row['class_id']))
+                    scen_stats['num_boxes'] += 1
+                    if cls_id == 0:
+                        scen_stats['num_vehicle_boxes'] += 1
+                    elif cls_id == 1:
+                        scen_stats['num_pedestrian_boxes'] += 1
+            if has_box:
+                scen_stats['num_nonempty_frames'] += 1
+        per_scenario[scen_name] = scen_stats
+        for key in stats:
+            if key != 'num_scenarios':
+                stats[key] += scen_stats[key]
+    return stats, per_scenario
 
 
 def numpy_kmeans(xy, k, seed=42, max_iter=80, tol=1e-4):
@@ -224,9 +301,14 @@ def metadata_is_valid(path, dataset_root, val_scenarios, k):
         return False
 
     resolved_val = resolve_val_scenarios(dataset_root, val_scenarios)
+    scen_names = list_scenarios(dataset_root)
+    train_scenarios = [name for name in scen_names if name not in resolved_val]
     return (
         meta.get('k') == k and
-        meta.get('val_scenarios') == resolved_val
+        meta.get('label_dir') == LABEL_DIR_NAME and
+        meta.get('scenarios') == scen_names and
+        meta.get('val_scenarios') == resolved_val and
+        meta.get('train_scenarios') == train_scenarios
     )
 
 
@@ -237,6 +319,7 @@ def ensure_kmeans_files(
     xy_out=DEFAULT_XY_OUT,
     full_out=DEFAULT_FULL_OUT,
     meta_out=DEFAULT_META_OUT,
+    split_out=DEFAULT_SPLIT_OUT,
     seed=42,
     force=False,
 ):
@@ -252,20 +335,51 @@ def ensure_kmeans_files(
     train_scenarios = [name for name in scen_names if name not in resolved_val]
     boxes = collect_boxes(dataset_root, val_scenarios)
     centers_xy, anchors_full = build_kmeans_anchors(boxes, k=k, seed=seed)
+    train_stats, train_per_scenario = collect_split_stats(dataset_root, train_scenarios)
+    val_stats, val_per_scenario = collect_split_stats(dataset_root, resolved_val)
+    all_stats, all_per_scenario = collect_split_stats(dataset_root, scen_names)
 
     np.save(xy_out, centers_xy.astype(np.float32))
     np.save(full_out, anchors_full.astype(np.float32))
+    meta = {
+        'k': k,
+        'seed': seed,
+        'label_dir': LABEL_DIR_NAME,
+        'scenarios': scen_names,
+        'train_scenarios': train_scenarios,
+        'val_scenarios': resolved_val,
+        'stats': {
+            'all': all_stats,
+            'train': train_stats,
+            'val': val_stats,
+        },
+        'num_train_boxes_visible': int(len(boxes)),
+    }
     with open(meta_out, 'w', encoding='utf-8') as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
+    with open(split_out, 'w', encoding='utf-8') as f:
         json.dump({
-            'k': k,
-            'seed': seed,
-            'val_scenarios': resolved_val,
+            'dataset_root': dataset_root,
+            'label_dir': LABEL_DIR_NAME,
+            'scenarios': scen_names,
             'train_scenarios': train_scenarios,
-            'num_train_boxes': int(len(boxes)),
+            'val_scenarios': resolved_val,
+            'stats': {
+                'all': all_stats,
+                'train': train_stats,
+                'val': val_stats,
+            },
+            'per_scenario': all_per_scenario,
+            'train_per_scenario': train_per_scenario,
+            'val_per_scenario': val_per_scenario,
         }, f, indent=2, ensure_ascii=False)
     print(f"[make_kmeans] 저장 완료: {xy_out} shape={centers_xy.shape}")
     print(f"[make_kmeans] 저장 완료: {full_out} shape={anchors_full.shape}")
     print(f"[make_kmeans] 저장 완료: {meta_out}")
+    print(f"[make_kmeans] 저장 완료: {split_out}")
+    print(f"  split: train={len(train_scenarios)} scen / val={len(resolved_val)} scen")
+    print(f"  train boxes(raw/visible): {train_stats['num_boxes']:,} / {len(boxes):,}")
+    print(f"  val boxes(raw): {val_stats['num_boxes']:,}")
     print(f"  center x: {centers_xy[:, 0].min():.2f} ~ {centers_xy[:, 0].max():.2f}")
     print(f"  center y: {centers_xy[:, 1].min():.2f} ~ {centers_xy[:, 1].max():.2f}")
     return xy_out, full_out
@@ -283,6 +397,7 @@ def main():
     parser.add_argument('--out', default=DEFAULT_XY_OUT)
     parser.add_argument('--full-out', default=DEFAULT_FULL_OUT)
     parser.add_argument('--meta-out', default=DEFAULT_META_OUT)
+    parser.add_argument('--split-out', default=DEFAULT_SPLIT_OUT)
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--force', action='store_true')
     args = parser.parse_args()
@@ -294,6 +409,7 @@ def main():
         xy_out=args.out,
         full_out=args.full_out,
         meta_out=args.meta_out,
+        split_out=args.split_out,
         seed=args.seed,
         force=args.force,
     )
