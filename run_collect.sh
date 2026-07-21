@@ -24,7 +24,7 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
-./venv/bin/python morai_3d_live.py --dataset_root "$DATASET_ROOT" &
+python3 morai_3d_live.py --dataset_root "$DATASET_ROOT" &
 collector_pid="$!"
 
 for _ in $(seq 1 50); do
