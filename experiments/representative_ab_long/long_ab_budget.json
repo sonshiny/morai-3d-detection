@@ -1,0 +1,34 @@
+{
+  "status": "NOT_STARTED",
+  "reason": "production-default schedule (100 epoch, full val every epoch) measured at ~503 GPU-hours (~20.9 GPU-days) for 12 runs on a single RTX 4070 SUPER; report-and-stop per Phase 2.4, validation-strategy change requires approval per Phase 2.5",
+  "hardware": {"gpu": "NVIDIA GeForce RTX 4070 SUPER", "vram_mib": 12282, "disk_free_gb": 871},
+  "production_schedule": {
+    "num_epochs": 100, "batch_size": 4, "grad_accum_steps": 2, "effective_batch": 8,
+    "val_cadence": "per-epoch", "val_frames_default": "full",
+    "early_stop_patience_default": 10, "early_stop_in_ab": 999999,
+    "periodic_ckpt_every_epochs": 10, "max_steps_per_epoch": 0,
+    "depth": "OFF (USE_DENSE_DEPTH=0)", "anchor_k": 900, "anchor_seed": 42
+  },
+  "measured_timing": {
+    "per_dl_step_s": 0.611,
+    "per_dl_step_method": "warm diff (D:120step,val8=91s)-(Cbis:30step,val8=36s)=55s/90step",
+    "per_val_frame_s": 1.05,
+    "per_val_frame_method": "warm B(90step,val300=388s) vs Cbis -> ~315s/300frames",
+    "full_val_1421frames_min": 25.0,
+    "startup_warm_s": 18,
+    "note": "train.validate() includes 0.01/0.03 low-threshold NMS sweep -> CPU-bound; final full-val uses eval_run.py fast single-forward path"
+  },
+  "folds": {
+    "A": {"val": "scen05", "train": ["scen77","scen144"], "train_frames": 2780, "steps_per_epoch": 695, "updates_per_epoch": 347, "updates_per_run_100ep": 34700, "train_hours_per_run": 11.8},
+    "B": {"val": "scen77", "train": ["scen05","scen144"], "train_frames": 1978, "steps_per_epoch": 495, "updates_per_epoch": 247, "updates_per_run_100ep": 24700, "train_hours_per_run": 8.4},
+    "C": {"val": "scen144", "train": ["scen05","scen77"], "train_frames": 1916, "steps_per_epoch": 479, "updates_per_epoch": 239, "updates_per_run_100ep": 23900, "train_hours_per_run": 8.1}
+  },
+  "budget_scenarios_12run_2seed": {
+    "S1_full_val_every_epoch_PROD_DEFAULT": {"gpu_hours": 503, "gpu_days": 20.9},
+    "S2_subset150_every_epoch_pilot_style": {"gpu_hours": 166, "gpu_days": 6.9},
+    "S3_subset150_every_10_epochs": {"gpu_hours": 119, "gpu_days": 4.9}
+  },
+  "storage_estimate": {"per_run_gb": 3.0, "total_12run_gb": 36, "fits_free_disk": true, "unbounded_ckpt": false},
+  "decision_required": "approve validation strategy (S1/S2/S3) AND multi-day GPU commitment before launch; otherwise hand off pilot + this budget only",
+  "pass_tag": "v3-source-time-representative-pass-v1 (NOT created; only after performance-GO + explicit user approval)"
+}

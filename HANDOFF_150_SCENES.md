@@ -7,6 +7,14 @@
 > production 학습(§19)은 BLOCKED**. 해제 조건: (1) seed=1 반복 + 수렴/장기 matched budget 재학습으로
 > V3_PERFORMANCE 재판정, (2) 150-scene 전체 감사·split 승인·전체 anchor·full-split preflight(§6–18),
 > (3) depth 동적 동기화 정량화. §1–18(감사·전처리·검증 파이프라인)은 지금 그대로 재현·수행 가능하다.
+>
+> **인수인계 branch**: `source-time-v3-handoff` (origin, main 미변경). 코드/테스트/파일럿 리포트 포함,
+> checkpoint·anchor(.npy)·dataset·PNG·log 는 제외(.gitignore). clean-clone 시 dataset 없으면 unit 15 pass /
+> integration 9 skip, dataset 있으면 24 pass.
+> **장기(수렴) A/B**: `experiments/representative_ab_long/`(runner + `LONG_AB_REPORT.md`) 에 budget 동결.
+> 상태 = **NOT STARTED**. production 기본 schedule(100 epoch, epoch마다 full val)의 12-run 실측 비용 ≈
+> **503 GPU-시간 ≈ 20.9 GPU-일**(단일 4070 SUPER). 임의 축소 없이 보고 후 멈춤 — validation 전략(S1/S2/S3)
+> 승인 + 다일 GPU 점유 승인 후 착수. **pass tag 미생성.**
 
 # HANDOFF — 150-scene source-time v3 재현·전처리·검증·학습 인수인계
 
