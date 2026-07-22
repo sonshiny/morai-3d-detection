@@ -1,0 +1,78 @@
+{
+  "per_scene": {
+    "scen05": {
+      "n_boxes": 1192,
+      "corr_dist": {
+        "n": 1192,
+        "mean": 0.1882,
+        "med": 0.1682,
+        "p95": 0.4211,
+        "max": 0.7667
+      },
+      "frac_gt_0p2m": 0.3918,
+      "frac_gt_0p5m": 0.0268,
+      "frac_ge_2p0m": 0.0,
+      "ratio_corr_over_thr_p95": 0.2105,
+      "n_correction_valid": 1192
+    },
+    "scen77": {
+      "n_boxes": 3790,
+      "corr_dist": {
+        "n": 3790,
+        "mean": 0.0971,
+        "med": 0.0694,
+        "p95": 0.2919,
+        "max": 0.9088
+      },
+      "frac_gt_0p2m": 0.1327,
+      "frac_gt_0p5m": 0.0066,
+      "frac_ge_2p0m": 0.0,
+      "ratio_corr_over_thr_p95": 0.1459,
+      "n_correction_valid": 3790
+    },
+    "scen144": {
+      "n_boxes": 5534,
+      "corr_dist": {
+        "n": 5534,
+        "mean": 0.092,
+        "med": 0.0627,
+        "p95": 0.2773,
+        "max": 0.7981
+      },
+      "frac_gt_0p2m": 0.1335,
+      "frac_gt_0p5m": 0.0027,
+      "frac_ge_2p0m": 0.0,
+      "ratio_corr_over_thr_p95": 0.1386,
+      "n_correction_valid": 5534
+    }
+  },
+  "overall": {
+    "n_boxes": 10516,
+    "corr_dist": {
+      "n": 10516,
+      "mean": 0.1047,
+      "med": 0.0766,
+      "p95": 0.3085,
+      "max": 0.9088
+    },
+    "frac_gt_0p2m": 0.1625,
+    "frac_gt_0p5m": 0.0068,
+    "frac_ge_2p0m": 0.0,
+    "max_over_thr": 0.4544,
+    "obj_world_speed_ms": {
+      "n": 10516,
+      "mean": 1.9983,
+      "med": 1.6192,
+      "p95": 4.1573,
+      "max": 4.2875
+    },
+    "abs_dt_o_s": {
+      "n": 10516,
+      "mean": 0.0337,
+      "med": 0.028,
+      "p95": 0.076,
+      "max": 0.121
+    }
+  },
+  "note": "corr_dist = |v3 - original-decode| ego-frame displacement; MAGNITUDE only, not accuracy"
+}

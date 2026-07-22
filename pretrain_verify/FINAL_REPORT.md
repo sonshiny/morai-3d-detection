@@ -1,5 +1,11 @@
 # 학습 전 검증 최종 보고 (pretrain verification) — v2 (독립 검토 blocker 반영)
 
+> 후속 판정: v3 label 자체의 수식/구현/시간 일관성은
+> `experiments/v3_correctness/V3_CORRECTNESS.md`의 학습 없는 직접 측정으로 검증했다.
+> 이 문서의 대표 preflight/A-B 결과는 파이프라인 검증 근거로 보존하며, 12-run 장기 A/B를
+> label correctness의 필수 조건으로 해석하지 않는다. 150-scene 실행 절차는 `HANDOFF_150_SCENES.md`가
+> 최신 기준이다.
+
 작업 위치: `/home/autonav/projects/morai-3d-detection`
 대상: scen05, scen77, scen144 (3,337 frame / 10,516 box). **장시간/full training 미시작, commit/push 안 함.**
 

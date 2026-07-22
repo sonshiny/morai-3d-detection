@@ -1,8 +1,10 @@
 # 대표 3-scene source-time v3 A/B 리포트
 
 > 🧪 **이 리포트는 PILOT (고정 300-update / 2-epoch·미수렴) 결과다. 이 결과만으로 성능 우열(V3_PERFORMANCE)을
-> 결론내릴 수 없다.** 성능 판정은 별도의 production-schedule 장기 A/B(`experiments/representative_ab_long/`,
-> seed 0/1, 100-epoch full schedule)로 수행/대체한다. 아래 수치·checkpoint·metric 은 파일럿 산출물이며
+> 결론내릴 수 없다.** 성능 우열을 추가로 요구할 때만 별도의 production-schedule 장기 A/B
+> (`experiments/representative_ab_long/`, seed 0/1, 100-epoch full schedule)를 수행한다.
+> v3 label correctness는 학습과 분리된 `experiments/v3_correctness/V3_CORRECTNESS.md`의 직접 측정으로
+> 판정한다. 아래 수치·checkpoint·metric 은 파일럿 산출물이며
 > **덮어쓰거나 삭제하지 않고 보존**한다. 장기 A/B 는 이 파일럿 checkpoint 를 resume 하지 않는다(각 seed 의
 > shared init 에서 새로 시작). 파일럿의 유효 결론은 **TECHNICAL_GO=PASS(파이프라인 정합·안정)** 까지다.
 

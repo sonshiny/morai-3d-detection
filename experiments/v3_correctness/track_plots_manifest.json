@@ -1,0 +1,47 @@
+[
+  {
+    "scen": "scen05",
+    "track_id": 1,
+    "n_frames": 126,
+    "corr_dist_mean": 0.2051,
+    "corr_dist_max": 0.7647,
+    "obj_speed_max": 4.0933,
+    "file": "plots/track_scen05_t1.png"
+  },
+  {
+    "scen": "scen77",
+    "track_id": 11,
+    "n_frames": 165,
+    "corr_dist_mean": 0.1819,
+    "corr_dist_max": 0.7535,
+    "obj_speed_max": 4.1453,
+    "file": "plots/track_scen77_t11.png"
+  },
+  {
+    "scen": "scen05",
+    "track_id": 2,
+    "n_frames": 171,
+    "corr_dist_mean": 0.1963,
+    "corr_dist_max": 0.6496,
+    "obj_speed_max": 4.2477,
+    "file": "plots/track_scen05_t2.png"
+  },
+  {
+    "scen": "scen144",
+    "track_id": 3,
+    "n_frames": 92,
+    "corr_dist_mean": 0.2024,
+    "corr_dist_max": 0.53,
+    "obj_speed_max": 3.9296,
+    "file": "plots/track_scen144_t3.png"
+  },
+  {
+    "scen": "scen05",
+    "track_id": 0,
+    "n_frames": 145,
+    "corr_dist_mean": 0.1377,
+    "corr_dist_max": 0.6104,
+    "obj_speed_max": 4.1259,
+    "file": "plots/track_scen05_t0.png"
+  }
+]
