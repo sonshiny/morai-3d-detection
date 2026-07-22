@@ -48,3 +48,20 @@ geom_verify/
 anchor_kmeans_*.npy
 anchor_kmeans_meta.json
 dataset_split_*.json
+
+# visual_audit: 71개 PNG 제외(생성 스크립트/README/index/manifest 만 추적)
+visual_audit/**/*.png
+# run 출력 격리 디렉터리(대용량 checkpoint) — *.pth 로도 제외되지만 명시
+runs/
+# 대표 A/B: checkpoint/로그/init 은 제외, 작은 config/metric JSON·리포트는 개별 add
+experiments/**/*.pth
+experiments/**/*.log
+# 세션 scratch / 검증용 임시 run·checkpoint 디렉터리
+experiments/_*/
+pretrain_verify/pf_*/
+pretrain_verify/_recon.sh
+pretrain_verify/_show_preflight.py
+experiments/representative_ab/_smoke.sh
+# 대표 A/B: 학습곡선 PNG(재생성) 제외
+experiments/**/training_curves.png
+experiments/representative_ab/_extract.py

@@ -415,11 +415,26 @@ class MoraiTemporalDataset(Dataset):
         occlusion_min_pts=None,
         visibility_min_ratio=None,
         visibility_loss_weighting=None,
+        gt_version=None,
     ):
         if not os.path.isdir(dataset_root):
             raise FileNotFoundError(f"[ERROR] dataset_root 없음: {dataset_root}")
         self.dataset_root = dataset_root
         self.split = split
+
+        # GT 버전 선택 (v2=기존, v3=front-camera source-time 보정).
+        #   v2 -> labels_3d_v2 + scene_info.json
+        #   v3 -> labels_3d_v3 + scene_info_v3.json   (correct_source_time.py 산출)
+        # label 과 scene_info 는 항상 같은 버전으로만 짝지어진다(혼합 불가). 기본 v2 →
+        # 기존 학습과 완전히 동일. env GT_VERSION 으로도 선택 가능(인자가 우선).
+        if gt_version is None:
+            gt_version = os.environ.get("GT_VERSION", "v2")
+        gt_version = str(gt_version).lower()
+        if gt_version not in ("v2", "v3"):
+            raise ValueError(f"gt_version은 'v2' 또는 'v3'이어야 합니다: {gt_version}")
+        self.gt_version = gt_version
+        self.label_dir_name = "labels_3d_v2" if gt_version == "v2" else "labels_3d_v3"
+        self.scene_info_name = "scene_info.json" if gt_version == "v2" else "scene_info_v3.json"
         self.sequence_length = int(sequence_length)
         self.depth_strides = tuple(int(s) for s in depth_strides)
         self.filter_visible = bool(filter_visible)
@@ -467,7 +482,7 @@ class MoraiTemporalDataset(Dataset):
         self._aug_epoch = 0
 
         selected_names, self.val_scenarios = _resolve_split_names(
-            dataset_root, split, val_scenarios, label_dir_name="labels_3d_v2"
+            dataset_root, split, val_scenarios, label_dir_name=self.label_dir_name
         )
         self.scenario_names = selected_names
         self.items = []
@@ -475,15 +490,28 @@ class MoraiTemporalDataset(Dataset):
 
         for scen_name in selected_names:
             scen_dir = os.path.join(dataset_root, scen_name)
-            info_path = os.path.join(scen_dir, "scene_info.json")
+            info_path = os.path.join(scen_dir, self.scene_info_name)
             if not os.path.isfile(info_path):
-                raise FileNotFoundError(f"[ERROR] scene_info.json 없음: {info_path}")
+                raise FileNotFoundError(f"[ERROR] {self.scene_info_name} 없음: {info_path}")
             with open(info_path, "r", encoding="utf-8") as f:
                 scene_info = json.load(f)
+            if self.gt_version == "v3":
+                if scene_info.get("gt_version") != "v3":
+                    raise ValueError(
+                        f"[ERROR] v3 loader에 v3 scene_info가 아닙니다: {info_path}")
+                invalid_frames = [
+                    frame.get("stem", "<unknown>")
+                    for frame in scene_info.get("frames", [])
+                    if int(frame.get("timing", {}).get("correction_valid", 0)) != 1
+                ]
+                if invalid_frames:
+                    raise ValueError(
+                        f"[ERROR] source-time correction invalid frame이 {len(invalid_frames)}개 있습니다: "
+                        f"{invalid_frames[:10]} ({info_path})")
             frames_by_stem = {frame["stem"]: frame for frame in scene_info["frames"]}
             self.scene_infos[scen_name] = frames_by_stem
 
-            label_dir = os.path.join(scen_dir, "labels_3d_v2")
+            label_dir = os.path.join(scen_dir, self.label_dir_name)
             stems = sorted(
                 os.path.splitext(f)[0]
                 for f in os.listdir(label_dir)
@@ -526,7 +554,8 @@ class MoraiTemporalDataset(Dataset):
         if not self.items:
             raise FileNotFoundError(f"[ERROR] {split} split에 temporal frame이 없습니다.")
         print(
-            f"[MoraiTemporalDataset:{split}] 시나리오 {selected_names} | "
+            f"[MoraiTemporalDataset:{split}] gt={self.gt_version} "
+            f"({self.label_dir_name}+{self.scene_info_name}) | 시나리오 {selected_names} | "
             f"{len(self.items):,} 프레임 | chunk={self.sequence_length}"
         )
 
@@ -614,11 +643,11 @@ class MoraiTemporalDataset(Dataset):
         return {int(tid[i]): float(br[i]) for i in range(len(tid))}
 
     def _load_labels_v2(self, scen_dir, stem):
-        csv_path = os.path.join(scen_dir, "labels_3d_v2", f"{stem}.csv")
+        csv_path = os.path.join(scen_dir, self.label_dir_name, f"{stem}.csv")
         boxes, labels, track_ids, velocity_valid, vel_sources = [], [], [], [], []
         vis_weights = []
         if not os.path.isfile(csv_path):
-            raise FileNotFoundError(f"[ERROR] labels_3d_v2 CSV 없음: {csv_path}")
+            raise FileNotFoundError(f"[ERROR] {self.label_dir_name} CSV 없음: {csv_path}")
 
         occ = self._load_occlusion(scen_dir, stem) if self.gt_removal_rule else None
         cam_occ = self._load_camera_occlusion(scen_dir, stem) if self.gt_removal_rule else None
@@ -626,6 +655,10 @@ class MoraiTemporalDataset(Dataset):
 
         with open(csv_path, newline="", encoding="utf-8") as f:
             for row in csv.DictReader(f):
+                if self.gt_version == "v3" and int(row.get("correction_valid", "0")) != 1:
+                    raise ValueError(
+                        f"[ERROR] correction_valid=0인 v3 GT를 학습할 수 없습니다: "
+                        f"{csv_path}, track_id={row.get('track_id')}")
                 box_center = _label_v2_to_box(row, z_mode="center")
                 # GT 제거 규칙 (2026-07-18 확정, scen02~06 검증):
                 #   1) 인지범위: radial_dist > 50m → 항상 제거
@@ -663,8 +696,13 @@ class MoraiTemporalDataset(Dataset):
                 boxes.append(box_center)
                 labels.append(int(float(row["class_id"])))
                 track_ids.append(int(float(row["track_id"])))
-                vel_sources.append(row.get("vel_source", "unknown"))
-                velocity_valid.append(1.0)
+                # P2 velocity validity guard: raw(=MORAI 제공) 속도만 신뢰.
+                # motion(중심차분 유도) 또는 그 외 불확실 source는 velocity_valid=0 →
+                # loss에서 vx/vy 채널만 mask(위치/치수/yaw는 그대로). 대표 데이터는
+                # 전부 raw이므로 baseline과 수치적으로 동일하다.
+                vsrc = row.get("vel_source", "unknown")
+                vel_sources.append(vsrc)
+                velocity_valid.append(1.0 if vsrc == "raw" else 0.0)
                 vis_weights.append(weight)
 
         if not boxes:

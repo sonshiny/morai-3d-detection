@@ -2,6 +2,8 @@ import wandb
 import math
 import os
 import csv
+import json
+import hashlib
 
 import numpy as np
 
@@ -33,7 +35,13 @@ from make_kmeans import (
     DEFAULT_META_OUT,
     DEFAULT_VAL_SCENARIOS,
     DEFAULT_XY_OUT,
+    anchor_meta_matches_run,
     ensure_kmeans_files,
+    hash_train_label_files,
+    label_dir_for_gt,
+    list_scenarios,
+    resolve_val_scenarios,
+    sha256_file,
 )
 from sparsedrive_ops import deformable_aggregation_function, feature_maps_format
 from torch.utils.data import DataLoader
@@ -1479,9 +1487,17 @@ def compute_auxiliary_detection_loss(model_out, batch, criterion, device, aux_we
     box_loss_sum = all_cls.new_tensor(0.0)
     quality_loss_sum = all_cls.new_tensor(0.0)
 
+    # P2 velocity validity: raw 속도만 vx/vy loss에 기여. motion/불확실 source는 mask.
+    # (temporal loader가 batch['velocity_valid']를 gt_boxes와 동일 순서로 제공. 없으면 None
+    #  → 기존 동작과 동일. matcher/cost에는 영향 없음.)
+    vel_valid_list = batch.get('velocity_valid', None)
     for b in range(B):
         gt_boxes = batch['dynamic_gt_boxes'][b].to(device)
         gt_classes = batch['dynamic_gt_labels'][b].to(device)
+        vel_valid_b = None
+        if vel_valid_list is not None and b < len(vel_valid_list) and vel_valid_list[b] is not None:
+            vv = vel_valid_list[b]
+            vel_valid_b = vv.to(device) if torch.is_tensor(vv) else torch.as_tensor(vv, device=device)
         for layer_idx in range(L):
             weight = layer_weights[layer_idx]
             det_loss, cls_loss, box_loss, quality_loss = criterion(
@@ -1490,6 +1506,7 @@ def compute_auxiliary_detection_loss(model_out, batch, criterion, device, aux_we
                 gt_classes,
                 gt_boxes,
                 all_quality[b, layer_idx],
+                velocity_valid=vel_valid_b,
             )
             total_loss = total_loss + weight * det_loss
             cls_loss_sum = cls_loss_sum + weight * cls_loss.detach()
@@ -2066,10 +2083,26 @@ if __name__ == "__main__":
     VAL_SCENARIOS = ([s for s in _vs_env.split(',') if s] if _vs_env
                      else list(DEFAULT_VAL_SCENARIOS))
 
+    # 재현성: env SEED 가 있으면 전역 시드를 고정한다(모델 init·DataLoader shuffle 결정성).
+    # 기본 미설정 → 기존 동작 그대로(시드 미설정). 대표 A/B 는 동일 SEED 로 init·sampler
+    # 순서를 맞춘다. GPU 커널 비결정성까지 제거하지는 않는다(재실행 차이는 preflight 에서 측정).
+    SEED = os.environ.get('SEED')
+    if SEED not in (None, ''):
+        import random as _random
+        _seed = int(SEED)
+        _random.seed(_seed)
+        np.random.seed(_seed)
+        torch.manual_seed(_seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(_seed)
+        print(f"[seed] 전역 시드 고정: {_seed}")
+
     NUM_EPOCHS           = int(os.environ.get('NUM_EPOCHS', '100'))
     BATCH_SIZE           = 4
     GRAD_ACCUM_STEPS     = 2      # effective batch size = 8
-    EARLY_STOP_PATIENCE  = 10     # small MORAI split에서는 best 이후 drift가 빨라 20은 너무 오래 끈다.
+    # early-stop patience. env override 가능(A/B 는 매우 크게 설정해 baseline/candidate 의
+    # optimizer update 수를 동일하게 고정 — 한쪽만 조기 종료해 update 수가 어긋나는 것 방지).
+    EARLY_STOP_PATIENCE  = int(os.environ.get('EARLY_STOP_PATIENCE', '10'))
     EARLY_STOP_MIN_DELTA = 1e-4
     METRIC_EVERY         = 1      # best 기준이 recall이므로 매 epoch P/R 계산
     RECALL_THR           = 2.0    # distance match threshold
@@ -2106,7 +2139,12 @@ if __name__ == "__main__":
     NUM_TEMP_INSTANCES   = 600
     # v11 checklist 7: dense depth 보조 태스크(loss weight 0.2는 DenseDepthNet 내부),
     # GridMask(p=0.7, 학습 시만), PhotoMetric(시퀀스-일관, train split만)
-    USE_DENSE_DEPTH      = USE_TEMPORAL_DATASET   # depth_gt 필요 → temporal dataset 전용
+    # dense depth 보조 태스크. 기본은 temporal dataset 사용 시 ON(기존 동작 불변).
+    # task H: env USE_DENSE_DEPTH 로 명시적 override(실험 스위치). OFF 로 두면 depth_gt I/O 와
+    # DenseDepthNet/loss 를 모두 끈다(label-correction isolation preflight 용).
+    _udd_env = os.environ.get('USE_DENSE_DEPTH')
+    USE_DENSE_DEPTH      = (USE_TEMPORAL_DATASET if _udd_env is None
+                            else _udd_env.strip().lower() not in ('0', '', 'false', 'no', 'off'))
     USE_GRID_MASK        = True
     USE_PHOTOMETRIC_AUG  = True
     # occlusion(num_lidar_pts) 필터: 박스 안 LiDAR 점 < 이 값이면 관측불가 GT로 제외(drop).
@@ -2114,14 +2152,38 @@ if __name__ == "__main__":
     # 기본 1(유령/amodal 라벨만 제거). env OCCLUSION_MIN_PTS로 override(0=비활성).
     # 사전 생성 필요: python3 generate_occlusion_gt.py --all
     OCCLUSION_MIN_PTS    = int(os.environ.get('OCCLUSION_MIN_PTS', '1'))
+    # GT 버전: v2(기존) 또는 v3(front-camera source-time 보정 GT + scene_info_v3).
+    # 기본 v2 → 기존 학습 동작 불변. env GT_VERSION=v3 로 보정 GT 학습.
+    # label 과 scene_info 는 항상 같은 버전으로만 짝지어진다(MoraiTemporalDataset 강제).
+    #
+    # task B: train GT 와 validation GT 를 분리한다.
+    #   TRAIN_GT_VERSION / VAL_GT_VERSION 이 있으면 그것을, 없으면 기존 GT_VERSION 으로 fallback
+    #   (→ 둘 다 미설정이면 기존과 완전히 동일한 단일-GT 동작).
+    #   대표 A/B:  baseline = train v2 / val v3,  candidate = train v3 / val v3.
+    #   ⚠️ validation metric 은 항상 동일한 v3 GT 로 측정해야 A/B 가 공정하다(VAL_GT_VERSION=v3).
+    GT_VERSION           = os.environ.get('GT_VERSION', 'v2').strip().lower()
+    TRAIN_GT_VERSION     = os.environ.get('TRAIN_GT_VERSION', GT_VERSION).strip().lower()
+    VAL_GT_VERSION       = os.environ.get('VAL_GT_VERSION', GT_VERSION).strip().lower()
+    for _gv_name, _gv in (('TRAIN_GT_VERSION', TRAIN_GT_VERSION),
+                          ('VAL_GT_VERSION', VAL_GT_VERSION)):
+        if _gv not in ('v2', 'v3'):
+            raise ValueError(f"{_gv_name}은 'v2' 또는 'v3'이어야 합니다: {_gv}")
     PRIMARY_BEST_MODE    = "softcalibrated"
     PRIMARY_BEST_THR     = 0.15
     PRIMARY_BEST_KEY     = "f1"
     BEST_METRIC_MODE     = "raw"  # legacy/resume 호환용
     FREEZE_BACKBONE_BN   = True   # batch=sample별 3 cameras라 backbone BN은 고정
     USE_AMP              = False  # custom aggregation/quality 학습 안정성을 위해 FP32 사용
-    OUTPUT_CKPT_DIR      = os.environ.get(
-        'OUTPUT_CKPT_DIR', os.path.join("checkpoints", "v11_transfer"))
+    # RUN_DIR: 설정 시 이 run 의 모든 산출(checkpoint/history/plot/periodic ckpt/run_config)을
+    # 한 디렉터리에 격리한다. 기존 checkpoint/log 를 덮어쓰지 않기 위한 A/B run 격리용(Phase 0).
+    # 미설정 시 기존 기본 동작 그대로. resume 은 같은 RUN_DIR 안에서만 자동 탐색된다.
+    RUN_DIR              = os.environ.get('RUN_DIR')
+    if RUN_DIR:
+        os.makedirs(RUN_DIR, exist_ok=True)
+        OUTPUT_CKPT_DIR  = os.environ.get('OUTPUT_CKPT_DIR', RUN_DIR)
+    else:
+        OUTPUT_CKPT_DIR  = os.environ.get(
+            'OUTPUT_CKPT_DIR', os.path.join("checkpoints", "v11_transfer"))
     V10_SOURCE_CKPT      = os.path.join("checkpoints", "v10_source", "best_model.pth")
     BEST_MODEL_PATH      = os.path.join(OUTPUT_CKPT_DIR, "best_model.pth")
     BEST_RAW_F1_025_PATH = os.path.join(OUTPUT_CKPT_DIR, "best_model_raw_f1_025.pth")
@@ -2171,8 +2233,10 @@ if __name__ == "__main__":
         _transfer_requested = False
     TRANSFER_MODE = _transfer_requested
 
-    HISTORY_CSV_PATH     = "training_history.csv"
-    HISTORY_PLOT_PATH    = "training_curves.png"
+    HISTORY_CSV_PATH     = (os.path.join(RUN_DIR, "training_history.csv")
+                            if RUN_DIR else "training_history.csv")
+    HISTORY_PLOT_PATH    = (os.path.join(RUN_DIR, "training_curves.png")
+                            if RUN_DIR else "training_curves.png")
     WARMUP_STEPS         = 500
     MIN_LR_RATIO         = 1e-3
     if RESUMING:
@@ -2216,7 +2280,11 @@ if __name__ == "__main__":
     print(f"   - temporal    : instance bank={USE_TEMPORAL_MEMORY}, temp={NUM_TEMP_INSTANCES}")
     print(f"   - backbone BN : freeze={FREEZE_BACKBONE_BN}")
     print(f"   - AMP         : {USE_AMP}")
-    print(f"   - batch       : {BATCH_SIZE} x accum {GRAD_ACCUM_STEPS} = {BATCH_SIZE * GRAD_ACCUM_STEPS}\n")
+    print(f"   - batch       : {BATCH_SIZE} x accum {GRAD_ACCUM_STEPS} = {BATCH_SIZE * GRAD_ACCUM_STEPS}")
+    print(f"   - gt_version  : train={TRAIN_GT_VERSION} / val={VAL_GT_VERSION} "
+          f"(v3=source-time 보정 GT+scene_info_v3, v2=기존 GT)"
+          f" | velocity_valid mask=raw-only")
+    print(f"   - dense_depth : {USE_DENSE_DEPTH} (env override={_udd_env!r})\n")
     _loop_desc = (
         f"STEP (val+ckpt {VAL_EVERY_STEPS} update마다)" if VAL_EVERY_STEPS > 0
         else "FULL-EPOCH"
@@ -2233,15 +2301,138 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[디바이스] {device}\n")
 
-    ensure_kmeans_files(
-        dataset_root=DATASET_ROOT,
-        val_scenarios=VAL_SCENARIOS,
-        k=KMEANS_K,
-        xy_out=DEFAULT_XY_OUT,
-        full_out=DEFAULT_FULL_OUT,
-        meta_out=DEFAULT_META_OUT,
-        force=FORCE_REMAKE_KMEANS,
-    )
+    # ── task C: 대표 검증 split 을 명시적으로 해석·출력·기록한다 ──────────────
+    # VAL_SCENARIOS 없이 묵시적으로 잘못된 split 으로 도는 것을 막기 위해, 시작 시
+    # 디스크의 시나리오로부터 train/val 을 확정해 출력하고 SPLIT_RECORD 에 남긴다.
+    _all_scen = list_scenarios(DATASET_ROOT, label_dir_name=('labels_3d_v2'
+                               if TRAIN_GT_VERSION == 'v2' else 'labels_3d_v3'))
+    _resolved_val = resolve_val_scenarios(DATASET_ROOT, VAL_SCENARIOS,
+                                          label_dir_name=('labels_3d_v2'
+                                          if TRAIN_GT_VERSION == 'v2' else 'labels_3d_v3'))
+    _resolved_train = [s for s in _all_scen if s not in _resolved_val]
+    SPLIT_RECORD = {
+        'dataset_root': os.path.abspath(DATASET_ROOT),
+        'all_scenarios': _all_scen,
+        'train_scenarios': _resolved_train,
+        'val_scenarios': _resolved_val,
+        'train_gt_version': TRAIN_GT_VERSION,
+        'val_gt_version': VAL_GT_VERSION,
+    }
+    if not _resolved_train:
+        raise RuntimeError(f"[split] train 시나리오가 비었습니다. resolved={SPLIT_RECORD}")
+    print(f"   - resolved split: TRAIN={_resolved_train} (gt={TRAIN_GT_VERSION}) | "
+          f"VAL={_resolved_val} (gt={VAL_GT_VERSION})")
+
+    # ── task D: anchor 정책 ───────────────────────────────────────────────
+    #  ANCHOR_DIR 가 있으면: 사전 생성된 versioned anchor 를 **검증만** 하고 사용한다.
+    #    - meta 의 anchor SHA-256 과 실제 .npy SHA 가 다르면 자동 재생성하지 않고 fail-fast.
+    #    - 모델(generate_anchors_full)이 그 파일을 읽도록 ANCHOR_*_FILE env 를 절대경로로 지정.
+    #    - 대표 A/B: 같은 ANCHOR_DIR 를 baseline/candidate 가 공유 → anchor tensor 동일.
+    #  없으면: 기존 동작(train GT 로 root anchor 생성). FORCE_REMAKE_KMEANS 로 재생성 여부 제어.
+    ANCHOR_DIR = os.environ.get('ANCHOR_DIR')
+    if ANCHOR_DIR:
+        _axy = os.path.join(ANCHOR_DIR, 'anchor_kmeans_xy.npy')
+        _afull = os.path.join(ANCHOR_DIR, 'anchor_kmeans_full.npy')
+        _ameta = os.path.join(ANCHOR_DIR, 'anchor_kmeans_meta.json')
+        for _p in (_axy, _afull, _ameta):
+            if not os.path.isfile(_p):
+                raise FileNotFoundError(f"[anchor] ANCHOR_DIR에 파일 없음(자동 생성 안 함): {_p}")
+        with open(_ameta, 'r', encoding='utf-8') as _f:
+            ANCHOR_META = json.load(_f)
+        _got_full = sha256_file(_afull)
+        _got_xy = sha256_file(_axy)
+        if ANCHOR_META.get('anchor_full_sha256') != _got_full:
+            raise SystemExit(
+                f"[anchor] SHA-256 mismatch (full): meta={ANCHOR_META.get('anchor_full_sha256')} "
+                f"!= actual={_got_full}. 자동 재생성하지 않음 — anchor를 재생성하거나 ANCHOR_DIR를 확인하세요.")
+        if ANCHOR_META.get('anchor_xy_sha256') != _got_xy:
+            raise SystemExit(
+                f"[anchor] SHA-256 mismatch (xy): meta={ANCHOR_META.get('anchor_xy_sha256')} "
+                f"!= actual={_got_xy}. 자동 재생성하지 않음.")
+        # 파일 무결성(SHA)만으로는 '엉뚱한 split 의 올바른 파일'을 못 막는다. meta 가 현재
+        # resolved train/val, k, seed, anchor GT version, 입력 train-label aggregate hash 와
+        # 일치하는지도 검사한다(3-scene anchor 를 150-scene split 에 지정 시 GPU 이전 fail-fast).
+        ANCHOR_SEED = int(os.environ.get('ANCHOR_SEED', '42'))
+        # anchor 는 '자기 자신의 GT'(meta.gt_version, 예: v3)로 검증한다. 대표 A/B 는
+        # baseline(train v2)·candidate(train v3)가 동일한 v3 anchor 를 공유하므로 anchor GT 를
+        # run 의 TRAIN_GT_VERSION 에 묶지 않는다. 입력 label hash 도 anchor 의 GT dir 로 재계산해
+        # wrong-split(train_scenarios·hash)·stale-label(hash)·wrong-seed 를 GPU 이전에 잡는다.
+        _anchor_gt = str(ANCHOR_META.get('gt_version'))
+        _expected_anchor_gt = os.environ.get('ANCHOR_GT_VERSION') or _anchor_gt
+        _alabel = label_dir_for_gt(_anchor_gt)
+        _cur_input_sha, _ = hash_train_label_files(DATASET_ROOT, VAL_SCENARIOS, _alabel)
+        _ok, _mm = anchor_meta_matches_run(
+            ANCHOR_META, k=KMEANS_K, gt_version=_expected_anchor_gt,
+            train_scenarios=_resolved_train, val_scenarios=_resolved_val,
+            seed=ANCHOR_SEED, input_label_sha256=_cur_input_sha)
+        if not _ok:
+            raise SystemExit(
+                "[anchor] ANCHOR_DIR meta 가 현재 split/데이터와 불일치 — 자동 재생성하지 않음:\n  "
+                + "\n  ".join(_mm))
+        os.environ['ANCHOR_FULL_FILE'] = os.path.abspath(_afull)
+        os.environ['ANCHOR_XY_FILE'] = os.path.abspath(_axy)
+        SPLIT_RECORD['anchor_dir'] = os.path.abspath(ANCHOR_DIR)
+        SPLIT_RECORD['anchor_full_sha256'] = _got_full
+        SPLIT_RECORD['anchor_gt_version'] = ANCHOR_META.get('gt_version')
+        SPLIT_RECORD['anchor_train_scenarios'] = ANCHOR_META.get('train_scenarios')
+        print(f"[anchor] versioned anchor 검증 통과: {ANCHOR_DIR} | "
+              f"gt={ANCHOR_META.get('gt_version')} k={ANCHOR_META.get('k')} "
+              f"sha={_got_full[:16]} train={ANCHOR_META.get('train_scenarios')}")
+    else:
+        ANCHOR_META = None
+        ensure_kmeans_files(
+            dataset_root=DATASET_ROOT,
+            val_scenarios=VAL_SCENARIOS,
+            k=KMEANS_K,
+            xy_out=DEFAULT_XY_OUT,
+            full_out=DEFAULT_FULL_OUT,
+            meta_out=DEFAULT_META_OUT,
+            force=FORCE_REMAKE_KMEANS,
+            gt_version=TRAIN_GT_VERSION,
+        )
+        if os.path.isfile(DEFAULT_FULL_OUT):
+            SPLIT_RECORD['anchor_full_sha256'] = sha256_file(DEFAULT_FULL_OUT)
+        SPLIT_RECORD['anchor_dir'] = None
+
+    # ── run provenance JSON(Phase 2): 시작 시 실행 설정을 OUTPUT_CKPT_DIR 에 남긴다 ──
+    def _git_out(*a):
+        try:
+            import subprocess
+            return subprocess.run(['git', *a], capture_output=True, text=True).stdout.strip()
+        except Exception:
+            return None
+    try:
+        _input_label_sha, _ = hash_train_label_files(
+            DATASET_ROOT, VAL_SCENARIOS, label_dir_for_gt(TRAIN_GT_VERSION))
+    except Exception:
+        _input_label_sha = None
+    RUN_CONFIG = {
+        'git_head': _git_out('rev-parse', 'HEAD'),
+        'git_dirty_diff_sha256': (hashlib.sha256((_git_out('diff') or '').encode()).hexdigest()),
+        'output_ckpt_dir': os.path.abspath(OUTPUT_CKPT_DIR),
+        'run_dir': (os.path.abspath(RUN_DIR) if RUN_DIR else None),
+        'train_scenarios': _resolved_train, 'val_scenarios': _resolved_val,
+        'train_gt_version': TRAIN_GT_VERSION, 'val_gt_version': VAL_GT_VERSION,
+        'anchor_dir': SPLIT_RECORD.get('anchor_dir'),
+        'anchor_full_sha256': SPLIT_RECORD.get('anchor_full_sha256'),
+        'anchor_gt_version': SPLIT_RECORD.get('anchor_gt_version'),
+        'input_label_sha256': _input_label_sha,
+        'seed': (int(SEED) if SEED not in (None, '') else None),
+        'use_dense_depth': USE_DENSE_DEPTH,
+        'batch_size': BATCH_SIZE, 'grad_accum_steps': GRAD_ACCUM_STEPS,
+        'num_epochs': NUM_EPOCHS, 'kmeans_k': KMEANS_K, 'recall_thr': RECALL_THR,
+        'early_stop_patience': EARLY_STOP_PATIENCE,
+        'use_amp': USE_AMP, 'freeze_backbone_bn': FREEZE_BACKBONE_BN,
+        'torch': torch.__version__, 'cuda': torch.version.cuda,
+        'cuda_available': torch.cuda.is_available(),
+        'device': str(device),
+        'gpu_name': (torch.cuda.get_device_name(0) if torch.cuda.is_available() else None),
+        'deformable_fallback': 'grid_sample (no nvcc)',
+    }
+    with open(os.path.join(OUTPUT_CKPT_DIR, 'run_config.json'), 'w', encoding='utf-8') as _f:
+        json.dump(RUN_CONFIG, _f, indent=2, ensure_ascii=False)
+    print(f"[run_config] {os.path.join(OUTPUT_CKPT_DIR, 'run_config.json')} "
+          f"seed={RUN_CONFIG['seed']} depth={USE_DENSE_DEPTH} anchor_sha={str(SPLIT_RECORD.get('anchor_full_sha256'))[:16]}")
 
     model = AutoNavModel(
         num_decoder_layers=6,
@@ -2282,11 +2473,14 @@ if __name__ == "__main__":
     dataset_cls = MoraiTemporalDataset if USE_TEMPORAL_DATASET else MoraiDataset
     collate_fn = morai_temporal_collate_fn if USE_TEMPORAL_DATASET else morai_collate_fn
     if USE_TEMPORAL_DATASET:
+        # task B: train 은 TRAIN_GT_VERSION, val 은 VAL_GT_VERSION 으로 각각 로드한다.
+        # task H: load_depth=USE_DENSE_DEPTH → depth OFF 시 depth_gt I/O 도 생략(동일 조건 양쪽 적용).
         train_ds = dataset_cls(dataset_root=DATASET_ROOT, split='train', val_scenarios=VAL_SCENARIOS,
-                               photometric_aug=USE_PHOTOMETRIC_AUG,
-                               occlusion_min_pts=OCCLUSION_MIN_PTS)
+                               photometric_aug=USE_PHOTOMETRIC_AUG, load_depth=USE_DENSE_DEPTH,
+                               occlusion_min_pts=OCCLUSION_MIN_PTS, gt_version=TRAIN_GT_VERSION)
         val_ds   = dataset_cls(dataset_root=DATASET_ROOT, split='val',   val_scenarios=VAL_SCENARIOS,
-                               occlusion_min_pts=OCCLUSION_MIN_PTS)
+                               load_depth=USE_DENSE_DEPTH,
+                               occlusion_min_pts=OCCLUSION_MIN_PTS, gt_version=VAL_GT_VERSION)
     else:
         train_ds = dataset_cls(dataset_root=DATASET_ROOT, split='train', val_scenarios=VAL_SCENARIOS)
         val_ds   = dataset_cls(dataset_root=DATASET_ROOT, split='val',   val_scenarios=VAL_SCENARIOS)
@@ -2409,6 +2603,23 @@ if __name__ == "__main__":
     if RESUME_FROM is not None and os.path.isfile(RESUME_FROM):
         ckpt = torch.load(RESUME_FROM, map_location=device)
         if isinstance(ckpt, dict) and 'model_state' in ckpt:
+            # cross-run resume 방지(Phase 0): checkpoint 가 다른 split/anchor/GT 로 만들어졌으면
+            # 조용히 이어받지 않고 fail-fast 한다(잘못된 run checkpoint resume 차단).
+            if ckpt.get('train_scenarios') is not None:
+                _rmm = []
+                if list(ckpt.get('train_scenarios') or []) != list(_resolved_train):
+                    _rmm.append(f"train_scenarios ckpt={ckpt.get('train_scenarios')} run={_resolved_train}")
+                if list(ckpt.get('val_scenarios') or []) != list(_resolved_val):
+                    _rmm.append(f"val_scenarios ckpt={ckpt.get('val_scenarios')} run={_resolved_val}")
+                if str(ckpt.get('train_gt_version')) != TRAIN_GT_VERSION:
+                    _rmm.append(f"train_gt ckpt={ckpt.get('train_gt_version')} run={TRAIN_GT_VERSION}")
+                _ck_a = ckpt.get('anchor_full_sha256'); _run_a = SPLIT_RECORD.get('anchor_full_sha256')
+                if _ck_a and _run_a and _ck_a != _run_a:
+                    _rmm.append(f"anchor_sha ckpt={_ck_a[:12]} run={_run_a[:12]}")
+                if _rmm:
+                    raise SystemExit(
+                        "[resume] checkpoint 가 현재 run 과 불일치 — 다른 run 의 checkpoint 를 "
+                        "resume 하려 함(fail-fast):\n  " + "\n  ".join(_rmm))
             ckpt_state = ckpt['model_state']
             model_state = model.state_dict()
             filtered = {k: v for k, v in ckpt_state.items()
@@ -2662,6 +2873,13 @@ if __name__ == "__main__":
             'best_scores': best_scores,
             'epochs_no_improve': epochs_no_improve,
             'history_records': history_records,
+            # run identity (Phase 0 cross-run resume fail-fast 근거)
+            'run_id': os.path.abspath(OUTPUT_CKPT_DIR),
+            'train_scenarios': _resolved_train,
+            'val_scenarios': _resolved_val,
+            'train_gt_version': TRAIN_GT_VERSION,
+            'val_gt_version': VAL_GT_VERSION,
+            'anchor_full_sha256': SPLIT_RECORD.get('anchor_full_sha256'),
         }, LAST_CHECKPOINT_PATH)
         print(f"   💽 Resume 체크포인트 저장: {LAST_CHECKPOINT_PATH}"
               f" (epoch={epoch_idx+1}, completed={epoch_completed})")
@@ -2799,7 +3017,8 @@ if __name__ == "__main__":
 
         # ─── 정기 체크포인트 ──────────────────────────────
         if (epoch + 1) % 10 == 0:
-            ckpt_path = f"checkpoint_epoch{epoch+1}.pth"
+            ckpt_path = os.path.join(OUTPUT_CKPT_DIR, f"checkpoint_epoch{epoch+1}.pth") \
+                if RUN_DIR else f"checkpoint_epoch{epoch+1}.pth"
             torch.save(model.state_dict(), ckpt_path)
             print(f"   📌 체크포인트 저장: {ckpt_path}")
 

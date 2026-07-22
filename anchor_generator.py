@@ -8,12 +8,22 @@ ANCHOR_XY_FILE = 'anchor_kmeans_xy.npy'
 ANCHOR_FULL_FILE = 'anchor_kmeans_full.npy'
 
 
+def _resolve_anchor_path(default_name, env_key):
+    """anchor 파일 경로. env override(절대경로 or repo-상대) 있으면 우선, 없으면 repo root 기본.
+    실험별 versioned anchor 를 root 를 덮어쓰지 않고 모델에 주입하기 위한 hook(task D)."""
+    override = os.environ.get(env_key)
+    if override:
+        return override if os.path.isabs(override) else os.path.join(
+            os.path.dirname(__file__), override)
+    return os.path.join(os.path.dirname(__file__), default_name)
+
+
 def generate_anchors():
     """
     3D 위치 앵커: [900, 3]
     K-means 클러스터링으로 GT가 자주 등장하는 위치에 앵커 배치
     """
-    kmeans_path = os.path.join(os.path.dirname(__file__), ANCHOR_XY_FILE)
+    kmeans_path = _resolve_anchor_path(ANCHOR_XY_FILE, 'ANCHOR_XY_FILE')
 
     if os.path.isfile(kmeans_path):
         centers_xy = np.load(kmeans_path)
@@ -45,7 +55,7 @@ def generate_anchors_full():
       - yaw: -π/2 (GT의 동일 방향 NPC 오프셋과 일치)
       - velocity: 0
     """
-    full_path = os.path.join(os.path.dirname(__file__), ANCHOR_FULL_FILE)
+    full_path = _resolve_anchor_path(ANCHOR_FULL_FILE, 'ANCHOR_FULL_FILE')
     if os.path.isfile(full_path):
         anchors_full = np.load(full_path)
         if anchors_full.shape == (NUM_ANCHORS, 11):

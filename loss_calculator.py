@@ -223,13 +223,17 @@ class CustomLoss(nn.Module):
         yns_loss = yns_loss / yns_weight.sum().clamp(min=1.0)
         return cns_loss + self.yawness_weight * yns_loss
 
-    def forward(self, pred_classes, pred_boxes, gt_classes, gt_boxes, pred_quality=None):
+    def forward(self, pred_classes, pred_boxes, gt_classes, gt_boxes, pred_quality=None,
+                velocity_valid=None):
         """
         pred_classes: [900, 2]
         pred_boxes:   [900, 11]
         pred_quality: [900, 2] optional; [:,0]=centerness, [:,1]=yawness
         gt_classes:   [N]
         gt_boxes:     [N, 11]
+        velocity_valid: [N] optional float mask (1=신뢰, 0=불확실). vx,vy 채널(ch8,9)에만
+                        element-wise 로 적용. None 이면 모든 채널 유지(기존 동작과 동일).
+                        matcher/cost 에는 영향 없음(위치·치수·yaw 8채널만 매칭).
         """
         device = pred_classes.device
         num_anchors = pred_classes.shape[0]
@@ -283,10 +287,23 @@ class CustomLoss(nn.Module):
             loss_bbox = torch.tensor(0.0, device=device)
         else:
             scale = torch.tensor(BOX_SCALE, device=device, dtype=pred_boxes.dtype)
-            loss_bbox = F.l1_loss(
-                pred_boxes[pred_idx, :REG_CHANNELS] / scale[:REG_CHANNELS],
-                gt_boxes[gt_idx, :REG_CHANNELS] / scale[:REG_CHANNELS]
-            )
+            diff = (
+                pred_boxes[pred_idx, :REG_CHANNELS] / scale[:REG_CHANNELS]
+                - gt_boxes[gt_idx, :REG_CHANNELS] / scale[:REG_CHANNELS]
+            ).abs()
+            # element-wise L1. x/y/z/dims/yaw(ch0-7)는 모든 matched box에서 유지,
+            # vx/vy(ch8,9=MATCH_CHANNELS:REG_CHANNELS)만 velocity_valid로 mask.
+            # denominator 는 기존 F.l1_loss(mean)와 같은 전체 element 수를 유지한다.
+            # weight.sum()으로 나누면 invalid velocity 비율이 높을수록 x/y/dim/yaw의
+            # gradient까지 최대 REG_CHANNELS/MATCH_CHANNELS 배 증폭된다. 여기서는
+            # "vx/vy 감독만 제거하고 나머지 채널은 현행 유지"가 목적이므로, 마스킹된
+            # velocity 항만 0이 되고 다른 채널의 절대 gradient는 바뀌지 않아야 한다.
+            weight = torch.ones_like(diff)
+            if velocity_valid is not None:
+                vv = velocity_valid.to(device=device, dtype=diff.dtype).view(-1)
+                vv = vv[gt_idx].clamp(0.0, 1.0)
+                weight[:, MATCH_CHANNELS:REG_CHANNELS] = vv.unsqueeze(1)
+            loss_bbox = (diff * weight).sum() / max(diff.numel(), 1)
 
         loss_quality = self.quality_loss(pred_quality, pred_boxes, gt_boxes, pred_idx, gt_idx)
 
