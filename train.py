@@ -4,6 +4,7 @@ import os
 import csv
 import json
 import hashlib
+import time
 
 import numpy as np
 
@@ -2098,13 +2099,27 @@ if __name__ == "__main__":
         print(f"[seed] 전역 시드 고정: {_seed}")
 
     NUM_EPOCHS           = int(os.environ.get('NUM_EPOCHS', '100'))
-    BATCH_SIZE           = 4
-    GRAD_ACCUM_STEPS     = 2      # effective batch size = 8
+    # Hardware-dependent knobs are environment-overridable, but the historical
+    # defaults stay unchanged.  Production wrappers keep the effective batch at
+    # eight unless a measured OOM/throughput preflight justifies another pair.
+    BATCH_SIZE           = int(os.environ.get('BATCH_SIZE', '4'))
+    GRAD_ACCUM_STEPS     = int(os.environ.get('GRAD_ACCUM_STEPS', '2'))
+    NUM_WORKERS          = int(os.environ.get('NUM_WORKERS', '0'))
+    if BATCH_SIZE < 1 or GRAD_ACCUM_STEPS < 1 or NUM_WORKERS < 0:
+        raise ValueError(
+            "BATCH_SIZE/GRAD_ACCUM_STEPS must be >=1 and NUM_WORKERS must be >=0: "
+            f"batch={BATCH_SIZE}, accum={GRAD_ACCUM_STEPS}, workers={NUM_WORKERS}"
+        )
     # early-stop patience. env override 가능(A/B 는 매우 크게 설정해 baseline/candidate 의
     # optimizer update 수를 동일하게 고정 — 한쪽만 조기 종료해 update 수가 어긋나는 것 방지).
     EARLY_STOP_PATIENCE  = int(os.environ.get('EARLY_STOP_PATIENCE', '10'))
     EARLY_STOP_MIN_DELTA = 1e-4
-    METRIC_EVERY         = 1      # best 기준이 recall이므로 매 epoch P/R 계산
+    METRIC_EVERY         = 1      # scheduled validation마다 primary metric 계산
+    # Full validation is expensive on the 150-scene split.  This only changes
+    # validation/checkpoint cadence; it never truncates the training loader.
+    VALIDATE_EVERY_EPOCHS = int(os.environ.get('VALIDATE_EVERY_EPOCHS', '1'))
+    if VALIDATE_EVERY_EPOCHS < 1:
+        raise ValueError("VALIDATE_EVERY_EPOCHS must be >= 1")
     RECALL_THR           = 2.0    # distance match threshold
     KMEANS_K             = DEFAULT_K
     # 기본 True(신규 학습 시 앵커 재생성). env로 끄면 기존 anchor_kmeans_*.npy 재사용
@@ -2173,7 +2188,13 @@ if __name__ == "__main__":
     PRIMARY_BEST_KEY     = "f1"
     BEST_METRIC_MODE     = "raw"  # legacy/resume 호환용
     FREEZE_BACKBONE_BN   = True   # batch=sample별 3 cameras라 backbone BN은 고정
-    USE_AMP              = False  # custom aggregation/quality 학습 안정성을 위해 FP32 사용
+    USE_AMP              = (os.environ.get('USE_AMP', '0').strip().lower()
+                            not in ('0', '', 'false', 'no', 'off'))
+    ALLOW_TF32           = (os.environ.get('ALLOW_TF32', '0').strip().lower()
+                            not in ('0', '', 'false', 'no', 'off'))
+    if torch.cuda.is_available():
+        torch.backends.cuda.matmul.allow_tf32 = ALLOW_TF32
+        torch.backends.cudnn.allow_tf32 = ALLOW_TF32
     # RUN_DIR: 설정 시 이 run 의 모든 산출(checkpoint/history/plot/periodic ckpt/run_config)을
     # 한 디렉터리에 격리한다. 기존 checkpoint/log 를 덮어쓰지 않기 위한 A/B run 격리용(Phase 0).
     # 미설정 시 기존 기본 동작 그대로. resume 은 같은 RUN_DIR 안에서만 자동 탐색된다.
@@ -2190,6 +2211,7 @@ if __name__ == "__main__":
     BEST_VAL_LOSS_PATH   = os.path.join(OUTPUT_CKPT_DIR, "best_model_val_loss.pth")
     LAST_CHECKPOINT_PATH = os.path.join(OUTPUT_CKPT_DIR, "last_checkpoint.pth")
     FINAL_WEIGHTS_PATH   = os.path.join(OUTPUT_CKPT_DIR, "morai_autonav_weights.pth")
+    THROUGHPUT_JSONL_PATH = os.path.join(OUTPUT_CKPT_DIR, "throughput.jsonl")
     os.makedirs(OUTPUT_CKPT_DIR, exist_ok=True)
     # ── v11 전이학습 (MIGRATION_PLAN §5) ──────────────────
     # TRANSFER_FROM_V10 이 설정되면 v10 단일프레임 가중치를 규칙 기반 부분전이하고
@@ -2271,7 +2293,8 @@ if __name__ == "__main__":
         f"(raw_f1@0.25/val_loss 별도 저장)"
     )
     print(f"   - early stop  : patience={EARLY_STOP_PATIENCE}, min_delta={EARLY_STOP_MIN_DELTA}")
-    print(f"   - metric      : Precision/Recall@{RECALL_THR}m, 매 {METRIC_EVERY} epoch")
+    print(f"   - metric      : Precision/Recall@{RECALL_THR}m, 매 {METRIC_EVERY} validation")
+    print(f"   - validation  : every {VALIDATE_EVERY_EPOCHS} epoch(s), final epoch always")
     print(f"   - input size  : {IMG_WIDTH}x{IMG_HEIGHT}")
     print(f"   - decoder     : SparseDrive-style 6 refinement layers + auxiliary loss")
     print(f"   - aggregation : CUDA deformable op + learned camera embedding, grid_sample fallback")
@@ -2279,8 +2302,9 @@ if __name__ == "__main__":
     print(f"   - best metric : primary={PRIMARY_BEST_MODE}/{PRIMARY_BEST_KEY}@{PRIMARY_BEST_THR:.2f}")
     print(f"   - temporal    : instance bank={USE_TEMPORAL_MEMORY}, temp={NUM_TEMP_INSTANCES}")
     print(f"   - backbone BN : freeze={FREEZE_BACKBONE_BN}")
-    print(f"   - AMP         : {USE_AMP}")
+    print(f"   - AMP/TF32    : amp={USE_AMP}, tf32={ALLOW_TF32}")
     print(f"   - batch       : {BATCH_SIZE} x accum {GRAD_ACCUM_STEPS} = {BATCH_SIZE * GRAD_ACCUM_STEPS}")
+    print(f"   - dataloader  : workers={NUM_WORKERS}")
     print(f"   - gt_version  : train={TRAIN_GT_VERSION} / val={VAL_GT_VERSION} "
           f"(v3=source-time 보정 GT+scene_info_v3, v2=기존 GT)"
           f" | velocity_valid mask=raw-only")
@@ -2420,9 +2444,19 @@ if __name__ == "__main__":
         'seed': (int(SEED) if SEED not in (None, '') else None),
         'use_dense_depth': USE_DENSE_DEPTH,
         'batch_size': BATCH_SIZE, 'grad_accum_steps': GRAD_ACCUM_STEPS,
+        'num_workers': NUM_WORKERS,
         'num_epochs': NUM_EPOCHS, 'kmeans_k': KMEANS_K, 'recall_thr': RECALL_THR,
         'early_stop_patience': EARLY_STOP_PATIENCE,
-        'use_amp': USE_AMP, 'freeze_backbone_bn': FREEZE_BACKBONE_BN,
+        'metric_every': METRIC_EVERY,
+        'validate_every_epochs': VALIDATE_EVERY_EPOCHS,
+        'fast_val_max_frames': FAST_VAL_MAX_FRAMES,
+        'use_temporal_memory': USE_TEMPORAL_MEMORY,
+        'use_streaming_sampler': USE_STREAMING_SAMPLER,
+        'temp_gnn_mode': TEMP_GNN_MODE,
+        'sequence_length': SEQUENCE_LENGTH,
+        'num_temp_instances': NUM_TEMP_INSTANCES,
+        'use_amp': USE_AMP, 'allow_tf32': ALLOW_TF32,
+        'freeze_backbone_bn': FREEZE_BACKBONE_BN,
         'torch': torch.__version__, 'cuda': torch.version.cuda,
         'cuda_available': torch.cuda.is_available(),
         'device': str(device),
@@ -2513,18 +2547,39 @@ if __name__ == "__main__":
             seed=0, drop_uneven_tail=False,
         )
         train_loader = DataLoader(train_ds, batch_sampler=train_sampler,
-                                  collate_fn=collate_fn, num_workers=0)
+                                  collate_fn=collate_fn, num_workers=NUM_WORKERS)
         val_loader   = DataLoader(val_ds, batch_sampler=val_sampler,
-                                  collate_fn=collate_fn, num_workers=0)
+                                  collate_fn=collate_fn, num_workers=NUM_WORKERS)
     else:
         train_sampler = None
         # non-streaming 분기 = streaming을 안 쓰는 경우이므로 항상 shuffle(표준 학습).
         # (기존 도달 케이스는 USE_TEMPORAL_MEMORY=0뿐이라 이전에도 True였음 → 동작 불변.
         #  STREAMING_SAMPLER=0 강제 시 sampler만 shuffle로 바꾸는 대조군을 위해 명시 True.)
         train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,
-                                  collate_fn=collate_fn, num_workers=0)
+                                  collate_fn=collate_fn, num_workers=NUM_WORKERS)
         val_loader   = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False,
-                                  collate_fn=collate_fn, num_workers=0)
+                                  collate_fn=collate_fn, num_workers=NUM_WORKERS)
+
+    # Dataset/sampler 규모는 실제 wall-time 산정의 분모이며, temporal train sampler는
+    # drop_uneven_tail=True라 raw dataset 길이와 epoch당 유효 frame 수가 다를 수 있다.
+    _train_frames_per_epoch = (
+        len(train_loader) * BATCH_SIZE if USE_STREAMING_SAMPLER else len(train_ds)
+    )
+    RUN_CONFIG.update({
+        'train_dataset_frames': len(train_ds),
+        'val_dataset_frames': len(val_ds),
+        'train_batches_per_epoch': len(train_loader),
+        'val_batches_per_eval': len(val_loader),
+        'train_frames_per_epoch': _train_frames_per_epoch,
+        'streaming_train_dropped_frames': max(len(train_ds) - _train_frames_per_epoch, 0),
+    })
+    with open(os.path.join(OUTPUT_CKPT_DIR, 'run_config.json'), 'w', encoding='utf-8') as _f:
+        json.dump(RUN_CONFIG, _f, indent=2, ensure_ascii=False)
+    print(
+        f"[loader] train raw={len(train_ds):,}, effective/epoch={_train_frames_per_epoch:,}, "
+        f"batches={len(train_loader):,}, dropped={RUN_CONFIG['streaming_train_dropped_frames']:,} | "
+        f"val raw={len(val_ds):,}, batches={len(val_loader):,}"
+    )
 
     # num_classes=2: vehicle, pedestrian (sigmoid focal, 배경 채널 없음)
     # v9: quality_weight=0.2 명시 — centerness/confidence 학습 강화
@@ -2613,9 +2668,31 @@ if __name__ == "__main__":
                     _rmm.append(f"val_scenarios ckpt={ckpt.get('val_scenarios')} run={_resolved_val}")
                 if str(ckpt.get('train_gt_version')) != TRAIN_GT_VERSION:
                     _rmm.append(f"train_gt ckpt={ckpt.get('train_gt_version')} run={TRAIN_GT_VERSION}")
+                if (ckpt.get('val_gt_version') is not None and
+                        str(ckpt.get('val_gt_version')) != VAL_GT_VERSION):
+                    _rmm.append(f"val_gt ckpt={ckpt.get('val_gt_version')} run={VAL_GT_VERSION}")
                 _ck_a = ckpt.get('anchor_full_sha256'); _run_a = SPLIT_RECORD.get('anchor_full_sha256')
                 if _ck_a and _run_a and _ck_a != _run_a:
                     _rmm.append(f"anchor_sha ckpt={_ck_a[:12]} run={_run_a[:12]}")
+                _resume_contract = {
+                    'batch_size': BATCH_SIZE,
+                    'grad_accum_steps': GRAD_ACCUM_STEPS,
+                    'use_temporal_memory': USE_TEMPORAL_MEMORY,
+                    'use_streaming_sampler': USE_STREAMING_SAMPLER,
+                    'temp_gnn_mode': TEMP_GNN_MODE,
+                    'sequence_length': SEQUENCE_LENGTH,
+                    'use_dense_depth': USE_DENSE_DEPTH,
+                    'use_amp': USE_AMP,
+                    'allow_tf32': ALLOW_TF32,
+                    'validate_every_epochs': VALIDATE_EVERY_EPOCHS,
+                    'fast_val_max_frames': FAST_VAL_MAX_FRAMES,
+                    'max_steps_per_epoch': MAX_STEPS_PER_EPOCH,
+                }
+                for _key, _run_value in _resume_contract.items():
+                    if _key in ckpt and ckpt.get(_key) != _run_value:
+                        _rmm.append(
+                            f"{_key} ckpt={ckpt.get(_key)!r} run={_run_value!r}"
+                        )
                 if _rmm:
                     raise SystemExit(
                         "[resume] checkpoint 가 현재 run 과 불일치 — 다른 run 의 checkpoint 를 "
@@ -2632,8 +2709,9 @@ if __name__ == "__main__":
             model_state.update(filtered)
             model.load_state_dict(model_state)
             print(f"[체크포인트] {len(filtered)}/{len(ckpt_state)} 파라미터 로드, {len(skipped)}개 스킵: {skipped[:3]}")
-            if 'optimizer_state' in ckpt:
-                pass  # optimizer state 스킵
+            if ckpt.get('optimizer_state') is not None:
+                optimizer.load_state_dict(ckpt['optimizer_state'])
+                print("[체크포인트] optimizer state 복원")
             if 'scaler_state' in ckpt and ckpt['scaler_state'] is not None:
                 scaler.load_state_dict(ckpt['scaler_state'])
             saved_epoch = int(ckpt.get('epoch', -1))
@@ -2683,16 +2761,94 @@ if __name__ == "__main__":
     # 참고: 이 블록은 module-level(__main__) 스코프라 재바인딩은 global 선언이 필요하다.
     eval_counter = len(history_records)   # history CSV/plot x축 (단조 증가)
 
+    def append_throughput_record(record):
+        payload = dict(record)
+        payload.update({
+            'gpu_name': RUN_CONFIG.get('gpu_name'),
+            'batch_size': BATCH_SIZE,
+            'grad_accum_steps': GRAD_ACCUM_STEPS,
+            'num_workers': NUM_WORKERS,
+            'use_temporal_memory': USE_TEMPORAL_MEMORY,
+            'use_streaming_sampler': USE_STREAMING_SAMPLER,
+            'temp_gnn_mode': TEMP_GNN_MODE,
+            'use_dense_depth': USE_DENSE_DEPTH,
+            'use_amp': USE_AMP,
+            'allow_tf32': ALLOW_TF32,
+        })
+        with open(THROUGHPUT_JSONL_PATH, 'a', encoding='utf-8') as _f:
+            _f.write(json.dumps(payload, ensure_ascii=False) + '\n')
+
+    def save_resume_checkpoint(epoch_idx, epoch_completed):
+        """Save the resumable state even on epochs where validation is skipped."""
+        torch.save({
+            'epoch': epoch_idx,
+            'epoch_completed': epoch_completed,
+            'model_state': model.state_dict(),
+            'optimizer_state': optimizer.state_dict(),
+            'scaler_state': scaler.state_dict() if scaler is not None else None,
+            'global_update_step': global_update_step,
+            'best_recall': best_recall,
+            'best_val_loss': best_val_loss,
+            'best_scores': best_scores,
+            'epochs_no_improve': epochs_no_improve,
+            'history_records': history_records,
+            # Run identity: cross-run/config resume fail-fast evidence.
+            'run_id': os.path.abspath(OUTPUT_CKPT_DIR),
+            'train_scenarios': _resolved_train,
+            'val_scenarios': _resolved_val,
+            'train_gt_version': TRAIN_GT_VERSION,
+            'val_gt_version': VAL_GT_VERSION,
+            'anchor_full_sha256': SPLIT_RECORD.get('anchor_full_sha256'),
+            'batch_size': BATCH_SIZE,
+            'grad_accum_steps': GRAD_ACCUM_STEPS,
+            'use_temporal_memory': USE_TEMPORAL_MEMORY,
+            'use_streaming_sampler': USE_STREAMING_SAMPLER,
+            'temp_gnn_mode': TEMP_GNN_MODE,
+            'sequence_length': SEQUENCE_LENGTH,
+            'use_dense_depth': USE_DENSE_DEPTH,
+            'use_amp': USE_AMP,
+            'allow_tf32': ALLOW_TF32,
+            'validate_every_epochs': VALIDATE_EVERY_EPOCHS,
+            'fast_val_max_frames': FAST_VAL_MAX_FRAMES,
+            'max_steps_per_epoch': MAX_STEPS_PER_EPOCH,
+        }, LAST_CHECKPOINT_PATH)
+        print(f"   💾 Resume 체크포인트 저장: {LAST_CHECKPOINT_PATH}"
+              f" (epoch={epoch_idx+1}, completed={epoch_completed})")
+
     def run_validation_and_checkpoint(train_stats, lr, epoch_idx, epoch_completed,
                                       compute_metric):
         """검증→로깅→best 저장→resume checkpoint. early-stop 여부를 반환."""
         global best_val_loss, epochs_no_improve, eval_counter
 
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+        _val_started = time.perf_counter()
         val_loss, val_metrics = validate(
             model, val_loader, det_criterion, device,
             compute_metric=compute_metric, recall_thr=RECALL_THR,
             max_frames=FAST_VAL_MAX_FRAMES,
         )
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+        _val_seconds = time.perf_counter() - _val_started
+        # validate() stops only at batch boundaries, so count the same prefix of
+        # batch indices here instead of assuming max_frames was hit exactly.
+        _val_frames = 0
+        for _indices in val_loader.batch_sampler:
+            if FAST_VAL_MAX_FRAMES and _val_frames >= FAST_VAL_MAX_FRAMES:
+                break
+            _val_frames += len(_indices)
+        append_throughput_record({
+            'kind': 'validation',
+            'epoch': epoch_idx + 1,
+            'seconds': _val_seconds,
+            'frames': _val_frames,
+            'frames_per_second': (_val_frames / _val_seconds if _val_seconds > 0 else None),
+            'compute_metric': bool(compute_metric),
+            'max_frames': FAST_VAL_MAX_FRAMES,
+        })
+        print(f"[throughput] validation epoch={epoch_idx+1} frames={_val_frames} "
+              f"seconds={_val_seconds:.3f} fps={_val_frames/max(_val_seconds, 1e-12):.3f}")
 
         train_loss         = train_stats['loss']
         train_cls_loss     = train_stats['cls']
@@ -2858,31 +3014,8 @@ if __name__ == "__main__":
                 f"{BEST_VAL_LOSS_PATH} ({epoch_best_path})"
             )
 
-        # ─── Resume용 full checkpoint ─────────────────────
-        # epoch_completed=False면 재개 시 이 epoch을 처음부터 다시 시작한다
-        # (mid-epoch 저장). global_update_step/LR은 연속 유지되므로 안전.
-        torch.save({
-            'epoch': epoch_idx,
-            'epoch_completed': epoch_completed,
-            'model_state': model.state_dict(),
-            'optimizer_state': optimizer.state_dict(),
-            'scaler_state': scaler.state_dict() if scaler is not None else None,
-            'global_update_step': global_update_step,
-            'best_recall': best_recall,
-            'best_val_loss': best_val_loss,
-            'best_scores': best_scores,
-            'epochs_no_improve': epochs_no_improve,
-            'history_records': history_records,
-            # run identity (Phase 0 cross-run resume fail-fast 근거)
-            'run_id': os.path.abspath(OUTPUT_CKPT_DIR),
-            'train_scenarios': _resolved_train,
-            'val_scenarios': _resolved_val,
-            'train_gt_version': TRAIN_GT_VERSION,
-            'val_gt_version': VAL_GT_VERSION,
-            'anchor_full_sha256': SPLIT_RECORD.get('anchor_full_sha256'),
-        }, LAST_CHECKPOINT_PATH)
-        print(f"   💽 Resume 체크포인트 저장: {LAST_CHECKPOINT_PATH}"
-              f" (epoch={epoch_idx+1}, completed={epoch_completed})")
+        # Validation을 건너뛰는 epoch도 동일 helper로 저장해 복구 주기를 유지한다.
+        save_resume_checkpoint(epoch_idx, epoch_completed)
 
         return epochs_no_improve >= EARLY_STOP_PATIENCE
 
@@ -2900,6 +3033,11 @@ if __name__ == "__main__":
         if hasattr(model, "reset_temporal_memory"):
             model.reset_temporal_memory()
         print(f"\n========== [Epoch {epoch+1}/{NUM_EPOCHS}] ==========")
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+        _train_started = time.perf_counter()
+        _epoch_train_frames = 0
+        _epoch_train_steps = 0
         # interval 기준 running 누적 (full-epoch 모드에선 epoch 전체 = 1 interval).
         run = {'loss': 0.0, 'cls': 0.0, 'box': 0.0, 'quality': 0.0, 'depth': 0.0, 'n': 0}
         early_stop = False
@@ -2968,6 +3106,8 @@ if __name__ == "__main__":
             run['quality'] += batch_quality_loss.item()
             run['depth'] += float(batch_depth_loss.item())
             run['n'] += 1
+            _epoch_train_frames += int(images.shape[0])
+            _epoch_train_steps += 1
 
             if step % 10 == 0:
                 print(
@@ -2999,6 +3139,30 @@ if __name__ == "__main__":
                 if early_stop:
                     break
 
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+        _train_seconds = time.perf_counter() - _train_started
+        append_throughput_record({
+            'kind': 'train',
+            'epoch': epoch + 1,
+            'seconds': _train_seconds,
+            'frames': _epoch_train_frames,
+            'dataloader_steps': _epoch_train_steps,
+            'optimizer_updates_total': global_update_step,
+            'frames_per_second': (
+                _epoch_train_frames / _train_seconds if _train_seconds > 0 else None
+            ),
+            'seconds_per_dataloader_step': (
+                _train_seconds / _epoch_train_steps if _epoch_train_steps > 0 else None
+            ),
+            'max_steps_per_epoch': MAX_STEPS_PER_EPOCH,
+        })
+        print(
+            f"[throughput] train epoch={epoch+1} frames={_epoch_train_frames} "
+            f"steps={_epoch_train_steps} seconds={_train_seconds:.3f} "
+            f"fps={_epoch_train_frames/max(_train_seconds, 1e-12):.3f}"
+        )
+
         if early_stop:
             print(f"\n⚠️  Early Stopping! "
                   f"Primary metric이 {EARLY_STOP_PATIENCE}회 검증 동안 개선 없음.")
@@ -3008,12 +3172,22 @@ if __name__ == "__main__":
         # step 모드에서 직전 검증 이후 남은 step(run['n']>0)만 마무리 검증한다.
         # (VAL_EVERY_STEPS로 딱 떨어져 run['n']==0이면 중복 검증 생략.)
         if run['n'] > 0:
-            compute_metric = ((epoch + 1) % METRIC_EVERY == 0)
             train_stats = {k: run[k] / run['n'] for k in ('loss', 'cls', 'box', 'quality', 'depth')}
-            early_stop = run_validation_and_checkpoint(
-                train_stats, optimizer.param_groups[-1]['lr'],
-                epoch, epoch_completed=True, compute_metric=compute_metric,
+            _validation_due = (
+                (epoch + 1) % VALIDATE_EVERY_EPOCHS == 0 or
+                (epoch + 1) == NUM_EPOCHS
             )
+            if _validation_due:
+                early_stop = run_validation_and_checkpoint(
+                    train_stats, optimizer.param_groups[-1]['lr'],
+                    epoch, epoch_completed=True, compute_metric=True,
+                )
+            else:
+                print(
+                    f"[validation] epoch {epoch+1} skip "
+                    f"(cadence={VALIDATE_EVERY_EPOCHS}); resumable checkpoint only"
+                )
+                save_resume_checkpoint(epoch, epoch_completed=True)
 
         # ─── 정기 체크포인트 ──────────────────────────────
         if (epoch + 1) % 10 == 0:
