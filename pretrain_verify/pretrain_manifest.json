@@ -1,0 +1,427 @@
+{
+  "purpose": "pretrain verification manifest (원본 데이터 미수정). full training 미시작.",
+  "git": {
+    "head": "67dbaf0e8d6c665822400b3715b62583cc18a4c5",
+    "diff_stat": "anchor_generator.py |  14 +++-\n loss_calculator.py  |  27 ++++++--\n make_kmeans.py      | 184 ++++++++++++++++++++++++++++++++++++++++++----------\n morai_dataset.py    |  56 +++++++++++++---\n train.py            | 163 ++++++++++++++++++++++++++++++++++++++++++----\n 5 files changed, 379 insertions(+), 65 deletions(-)",
+    "tracked_unstaged_diff_sha256": "e29fdefa579d7e7a44878faf0fb3c62503869afe6178b1111fa3e62a14180b44",
+    "diff_check_clean": true,
+    "modified_tracked": [
+      "anchor_generator.py",
+      "loss_calculator.py",
+      "make_kmeans.py",
+      "morai_dataset.py",
+      "train.py"
+    ],
+    "untracked": [
+      "anchors/v3_train_scen05_scen77_k900/dataset_split.json",
+      "correct_source_time.py",
+      "eval_relative_speed.py",
+      "g_membership_audit.py",
+      "pretrain_verify/FINAL_REPORT.md",
+      "pretrain_verify/J_p1_decision.md",
+      "pretrain_verify/_recon.sh",
+      "pretrain_verify/_show_preflight.py",
+      "pretrain_verify/a_freeze.py",
+      "pretrain_verify/a_freeze_data.json",
+      "pretrain_verify/build_manifest.py",
+      "pretrain_verify/g_membership_audit.json",
+      "pretrain_verify/p3_gt_distribution_v3.json",
+      "pretrain_verify/preflight.py",
+      "pretrain_verify/preflight_report.json",
+      "pretrain_verify/pretrain_manifest.json",
+      "test_anchor_policy.py",
+      "test_gt_version_split.py",
+      "test_relative_speed_eval.py",
+      "test_source_time_correction.py",
+      "test_velocity_valid_loss.py",
+      "visual_audit/README.md",
+      "visual_audit/_audit_common.py",
+      "visual_audit/boundary_50m/01_scen05_f65_t2_v2_only.png",
+      "visual_audit/boundary_50m/02_scen05_f191_t3_v2_only.png",
+      "visual_audit/boundary_50m/03_scen05_f227_t4_v2_only.png",
+      "visual_audit/boundary_50m/04_scen05_f280_t6_v2_only.png",
+      "visual_audit/boundary_50m/05_scen144_f243_t5_v2_only.png",
+      "visual_audit/boundary_50m/06_scen144_f543_t7_v2_only.png",
+      "visual_audit/boundary_50m/07_scen144_f931_t10_v2_only.png",
+      "visual_audit/boundary_50m/08_scen144_f1013_t14_v2_only.png",
+      "visual_audit/boundary_50m/09_scen77_f675_t8_v2_only.png",
+      "visual_audit/boundary_50m/10_scen77_f934_t10_v2_only.png",
+      "visual_audit/boundary_50m/11_scen77_f1333_t11_v2_only.png",
+      "visual_audit/boundary_50m/12_scen77_f1337_t13_v2_only.png",
+      "visual_audit/boundary_50m/13_scen144_f924_t10_v3_only.png",
+      "visual_audit/boundary_50m/_manifest.json",
+      "visual_audit/boundary_audit.py",
+      "visual_audit/depth/_manifest.json",
+      "visual_audit/depth/scen05_cam_front_left_live_000338_depth.png",
+      "visual_audit/depth/scen05_cam_front_live_000255_depth.png",
+      "visual_audit/depth/scen05_cam_front_right_live_000481_depth.png",
+      "visual_audit/depth/scen144_cam_front_left_live_000198_depth.png",
+      "visual_audit/depth/scen144_cam_front_live_000211_depth.png",
+      "visual_audit/depth/scen144_cam_front_right_live_001390_depth.png",
+      "visual_audit/depth/scen77_cam_front_left_live_001330_depth.png",
+      "visual_audit/depth/scen77_cam_front_live_000972_depth.png",
+      "visual_audit/depth/scen77_cam_front_right_live_000456_depth.png",
+      "visual_audit/depth_audit.py",
+      "visual_audit/index.html",
+      "visual_audit/make_index.py",
+      "visual_audit/track_temporal/_manifest.json",
+      "visual_audit/track_temporal/scen05_t1_rank3_mcd0.205.png",
+      "visual_audit/track_temporal/scen05_t3_rank2_mcd0.206.png",
+      "visual_audit/track_temporal/scen05_t8_rank1_mcd0.223.png",
+      "visual_audit/track_temporal/scen144_t3_rank2_mcd0.202.png",
+      "visual_audit/track_temporal/scen144_t4_rank3_mcd0.199.png",
+      "visual_audit/track_temporal/scen144_t5_rank1_mcd0.204.png",
+      "visual_audit/track_temporal/scen77_t11_rank2_mcd0.182.png",
+      "visual_audit/track_temporal/scen77_t3_rank1_mcd0.201.png",
+      "visual_audit/track_temporal/scen77_t5_rank3_mcd0.161.png",
+      "visual_audit/track_temporal_audit.py",
+      "visual_audit/v2_vs_v3/_manifest.json",
+      "visual_audit/v2_vs_v3/scen05_f0_t0_cd0.000.png",
+      "visual_audit/v2_vs_v3/scen05_f0_t1_cd0.000.png",
+      "visual_audit/v2_vs_v3/scen05_f0_t2_cd0.000.png",
+      "visual_audit/v2_vs_v3/scen05_f100_t1_cd0.765.png",
+      "visual_audit/v2_vs_v3/scen05_f115_t1_cd0.751.png",
+      "visual_audit/v2_vs_v3/scen05_f118_t1_cd0.716.png",
+      "visual_audit/v2_vs_v3/scen05_f119_t0_cd0.395.png",
+      "visual_audit/v2_vs_v3/scen05_f119_t2_cd0.397.png",
+      "visual_audit/v2_vs_v3/scen05_f128_t0_cd0.400.png",
+      "visual_audit/v2_vs_v3/scen05_f135_t0_cd0.610.png",
+      "visual_audit/v2_vs_v3/scen05_f135_t2_cd0.650.png",
+      "visual_audit/v2_vs_v3/scen05_f449_t7_cd0.632.png",
+      "visual_audit/v2_vs_v3/scen05_f465_t8_cd0.653.png",
+      "visual_audit/v2_vs_v3/scen05_f466_t8_cd0.767.png",
+      "visual_audit/v2_vs_v3/scen05_f472_t8_cd0.400.png",
+      "visual_audit/v2_vs_v3/scen05_f474_t8_cd0.757.png",
+      "visual_audit/v2_vs_v3/scen144_f0_t0_cd0.000.png",
+      "visual_audit/v2_vs_v3/scen144_f0_t1_cd0.000.png",
+      "visual_audit/v2_vs_v3/scen144_f205_t5_cd0.798.png",
+      "visual_audit/v2_vs_v3/scen144_f286_t4_cd0.397.png",
+      "visual_audit/v2_vs_v3/scen144_f540_t6_cd0.395.png",
+      "visual_audit/v2_vs_v3/scen144_f688_t9_cd0.000.png",
+      "visual_audit/v2_vs_v3/scen77_f0_t1_cd0.000.png",
+      "visual_audit/v2_vs_v3/scen77_f0_t2_cd0.000.png",
+      "visual_audit/v2_vs_v3/scen77_f1008_t9_cd0.000.png",
+      "visual_audit/v2_vs_v3/scen77_f1198_t11_cd0.753.png",
+      "visual_audit/v2_vs_v3/scen77_f1201_t11_cd0.750.png",
+      "visual_audit/v2_vs_v3/scen77_f1205_t11_cd0.398.png",
+      "visual_audit/v2_vs_v3/scen77_f1226_t11_cd0.399.png",
+      "visual_audit/v2_vs_v3/scen77_f150_t2_cd0.612.png",
+      "visual_audit/v2_vs_v3/scen77_f175_t3_cd0.615.png",
+      "visual_audit/v2_vs_v3/scen77_f178_t3_cd0.730.png",
+      "visual_audit/v2_vs_v3/scen77_f187_t0_cd0.682.png",
+      "visual_audit/v2_vs_v3/scen77_f187_t3_cd0.823.png",
+      "visual_audit/v2_vs_v3/scen77_f439_t5_cd0.793.png",
+      "visual_audit/v2_vs_v3/scen77_f463_t6_cd0.716.png",
+      "visual_audit/v2_vs_v3/scen77_f468_t6_cd0.909.png",
+      "visual_audit/v2_vs_v3/scen77_f555_t6_cd0.399.png",
+      "visual_audit/v2_vs_v3/scen77_f742_t7_cd0.000.png",
+      "visual_audit/v2_vs_v3/scen77_f86_t1_cd0.399.png",
+      "visual_audit/v2v3_audit.py"
+    ]
+  },
+  "code_file_sha256": {
+    "train.py": "c38fa215bb784e10d8f96edab44361e569d81c036dba92ba37fb560cec0ca8d8",
+    "make_kmeans.py": "493636f2f16558b010e8365f9df7271ca73c59fb8f979a0104082b1579cdce22",
+    "anchor_generator.py": "92e74724c50260ec4392a0de3904a945f9be64b2ea29b0cc8b493912f10dba51",
+    "morai_dataset.py": "d9793d17a7c8c28b3c0d88053c3911d4e852bb1fd64f16ea884a2e37c8698874",
+    "loss_calculator.py": "703801325f64d9ff8ceeb3fa236ded4a61a7f2367938332810328e10e6476a72",
+    "correct_source_time.py": "bd488d61f3df1da691370e2aba5780b1c149401a7b9e9760d62c2c1e5f6b8324",
+    "eval_relative_speed.py": "42e81cc161bfd3997a586292f689af316176e9f1d5e7b3bbfa41b1a122479286",
+    "test_source_time_correction.py": "f2053f66eb36d0227dd1de9dcadc3a1616a38351b7d7ae89d025c98db5bca6ee",
+    "test_velocity_valid_loss.py": "305ac6ae6e1861609d7cb948cdab007a47f43d9265acd6c3af798dc12ecdb063",
+    "test_anchor_policy.py": "0e8682c541f18f39d144a2b30eafb041c6c766ba564d51cae5fd7ab8ae3c4be0",
+    "test_gt_version_split.py": "d191f502f63fa2bdf231eabedb230284c840b2bcd27b936023987dac2e1f38a3",
+    "test_relative_speed_eval.py": "b82e0d409001b1addd1661fb6b237f83b3b5a75d82065e4c644b33fc648dbcfe",
+    "g_membership_audit.py": "30e789d84f00aa33413bd3c6848a3096443543ec78e5cedc487d3a357e8fe10d"
+  },
+  "representative_split": {
+    "train_scenarios": [
+      "scen05",
+      "scen77"
+    ],
+    "val_scenarios": [
+      "scen144"
+    ],
+    "baseline": {
+      "train_gt": "v2",
+      "val_gt": "v3"
+    },
+    "candidate": {
+      "train_gt": "v3",
+      "val_gt": "v3"
+    },
+    "note": "validation metric은 항상 v3 GT. anchor는 v3 train split에서 1회 생성, 양쪽 공유."
+  },
+  "counts": {
+    "per_scene": {
+      "scen05": {
+        "v2_frames": 557,
+        "v2_boxes": 1192,
+        "v3_frames": 557,
+        "v3_boxes": 1192,
+        "depth_files": 1671
+      },
+      "scen77": {
+        "v2_frames": 1359,
+        "v2_boxes": 3790,
+        "v3_frames": 1359,
+        "v3_boxes": 3790,
+        "depth_files": 4077
+      },
+      "scen144": {
+        "v2_frames": 1421,
+        "v2_boxes": 5534,
+        "v3_frames": 1421,
+        "v3_boxes": 5534,
+        "depth_files": 4263
+      }
+    },
+    "total": {
+      "v2_frames": 3337,
+      "v2_boxes": 10516,
+      "v3_frames": 3337,
+      "v3_boxes": 10516,
+      "depth_files": 10011
+    }
+  },
+  "raw_input_hashes": {
+    "scen05": {
+      "labels_3d": {
+        "sha256": "bdaabe07c59e6a8f5263d1e38a744c91237095b0c0dc746535768134f8c156f0",
+        "n": 557
+      },
+      "labels_3d_v2": {
+        "sha256": "f0ab7c4ee4679f52744fa488806b1fdda3a4479c3a27c3451f3df42af4d9f377",
+        "n": 557
+      },
+      "ego_pose": {
+        "sha256": "d48daed1094150a645f0ac9f98c6d65d81c10e43a3b40462dff7d8af90dcf0c4",
+        "n": 557
+      },
+      "lidar": {
+        "sha256": "865a92e71c95785647ac338a2708d28496d379383d590562abb43592aade4aaa",
+        "n": 557
+      },
+      "sync_log": {
+        "sha256": "a250221e4966ace51980a0019bd5e71c24a093dd4e6be0abfd7e8c2142e2c359"
+      }
+    },
+    "scen77": {
+      "labels_3d": {
+        "sha256": "defc9b1e26760bad407932e0ada2d0dbc699e0c92dfcf551378895db891aea78",
+        "n": 1359
+      },
+      "labels_3d_v2": {
+        "sha256": "63ba08dceef5d22cc3cb33cd05efa383d2c1f399fecd5a8fc559ecc15fa38ae7",
+        "n": 1359
+      },
+      "ego_pose": {
+        "sha256": "b4e57ef23f6a0a9cc4c01249a068c3a90fc665273f74c3edc843bbe3f3cec4b9",
+        "n": 1359
+      },
+      "lidar": {
+        "sha256": "ef0391e75ce8c3e09c97ae954a9045bbdb0631f0916152a0ce1631bb88b2b933",
+        "n": 1359
+      },
+      "sync_log": {
+        "sha256": "9bda383d3cd5949e5dcae352d59a5d75e1302e46f5c4d00fe0b26b93c9b23274"
+      }
+    },
+    "scen144": {
+      "labels_3d": {
+        "sha256": "f75d252c72b1eb59c717566ce9d25fca035a67163225b82be954ed9590e9a868",
+        "n": 1421
+      },
+      "labels_3d_v2": {
+        "sha256": "3640a7fc3a1d7f8bf17ffffa62ef36db28e2d1224d7f2de7fca9ec750d741b49",
+        "n": 1421
+      },
+      "ego_pose": {
+        "sha256": "ba1651f43bc90bd8a467eded66d43319de4a9a585ffc0734d304d0a6d3aa8df2",
+        "n": 1421
+      },
+      "lidar": {
+        "sha256": "f1428f255ffebbd30d602f1d7ec292469fefaf3454d45175056c501b532a985d",
+        "n": 1421
+      },
+      "sync_log": {
+        "sha256": "a83b5ce819de2d0712d8e239083a628acb5a36a9b47c195b964784e9558ee1ec"
+      }
+    }
+  },
+  "raw_input_invariant_vs_baseline": true,
+  "anchor": {
+    "dir": "anchors/v3_train_scen05_scen77_k900",
+    "gt_version": "v3",
+    "k": 900,
+    "seed": 42,
+    "label_dir": "labels_3d_v3",
+    "train_scenarios": [
+      "scen05",
+      "scen77"
+    ],
+    "val_scenarios": [
+      "scen144"
+    ],
+    "input_label_sha256": "c65c2dbd78a6193f150403d098e7b3243c93d82d4eda50697a00e7f2eeb55079",
+    "anchor_full_sha256": "aef60c9d786d2ba875f79355bd2e26ea1f98cb51b3ff16461ba57b5b5819bd5f",
+    "anchor_full_sha256_actual": "aef60c9d786d2ba875f79355bd2e26ea1f98cb51b3ff16461ba57b5b5819bd5f",
+    "anchor_xy_sha256": "f6d0a8a79ec2cabfb2e36a5398c85aae653945b7aad12533092804e88b3811fa",
+    "num_train_boxes_visible": 4982,
+    "sha_matches": true
+  },
+  "seed": 0,
+  "depth": {
+    "default_use_dense_depth": true,
+    "env_override": "USE_DENSE_DEPTH (0/1)",
+    "dataset_load_depth_follows_use_dense_depth": true,
+    "depth_gt_files_expected": 10011,
+    "depth_gt_files_found": 10011
+  },
+  "cuda": {
+    "nvcc_present": false,
+    "deformable_aggregation": "grid_sample fallback (no nvcc)",
+    "torch": "2.1.0+cu121",
+    "cuda_available": true
+  },
+  "membership_audit": {
+    "v2_natural": 9124,
+    "v3_natural": 9113,
+    "common": 9112,
+    "v2_only": 12,
+    "v3_only": 1,
+    "n_boundary_cross": 13,
+    "expected": {
+      "v2": 9124,
+      "v3": 9113,
+      "common": 9112,
+      "v2_only": 12,
+      "v3_only": 1
+    }
+  },
+  "p3_gt_distribution": {
+    "bins": [
+      {
+        "bin": "[0,1)",
+        "n_gt": 3482,
+        "n_tracks": 15,
+        "n_frames": 1773
+      },
+      {
+        "bin": "[1,3)",
+        "n_gt": 2017,
+        "n_tracks": 19,
+        "n_frames": 1033
+      },
+      {
+        "bin": "[3,6)",
+        "n_gt": 4836,
+        "n_tracks": 42,
+        "n_frames": 2335
+      },
+      {
+        "bin": "[6,8)",
+        "n_gt": 172,
+        "n_tracks": 7,
+        "n_frames": 146
+      },
+      {
+        "bin": "[8,inf)",
+        "n_gt": 9,
+        "n_tracks": 1,
+        "n_frames": 9
+      }
+    ],
+    "total_boxes": 10516,
+    "match_radius_m": 2.0,
+    "halfwidth": 3,
+    "warnings": [
+      "bin [8,inf): n_gt=9 (<30, n_tracks=1) → 표본 부족, 이 구간으로 모델 우열/노이즈 결론 금지."
+    ]
+  },
+  "preflight": {
+    "init_sha": "782799804d4115c8afd90d06f59686336a614130bfde0abc25e2a5c8c80dfd38",
+    "anchor_sha": "fb7205d2708d10de8a7224d018461fe30b8a0e78a7ce22ec7526c6676777026e",
+    "warmup": 20,
+    "steps": 100,
+    "no_nan_inf": true,
+    "sampler_order_identical": true,
+    "checkpoint_save_resume_ok": true,
+    "nondeterminism": {
+      "rerun_max_abs_loss_diff": 0.05654573440551758,
+      "note": "GPU grid_sample/deformable fallback backward(atomicAdd)는 비결정적 → bitwise 동일 주장 안 함. 재실행 최대 loss 차이로 정량화.",
+      "first_loss_run1": 5.72696590423584,
+      "first_loss_run2": 5.726781845092773
+    },
+    "configs": {
+      "PROD_baseline_v2v3": {
+        "n_optimizer_updates": 120,
+        "updates_per_s": 0.7396314903897866,
+        "peak_cuda_alloc_gib": 6.603374481201172,
+        "peak_cuda_reserved_gib": 6.81640625,
+        "grad_all_finite": true,
+        "param_all_finite": true,
+        "first_loss": 5.722953796386719,
+        "last_loss": 2.03951358795166,
+        "loss_finite": true,
+        "val_loss": 1.8152402997016908,
+        "val_softcalibrated@0.15": {
+          "precision": 0.08333333333333333,
+          "recall": 0.0125,
+          "f1": 0.02173913043478261
+        }
+      },
+      "PROD_candidate_v3v3": {
+        "n_optimizer_updates": 120,
+        "updates_per_s": 0.765363399233582,
+        "peak_cuda_alloc_gib": 7.008902072906494,
+        "peak_cuda_reserved_gib": 7.11328125,
+        "grad_all_finite": true,
+        "param_all_finite": true,
+        "first_loss": 5.72696590423584,
+        "last_loss": 2.0563266277313232,
+        "loss_finite": true,
+        "val_loss": 1.8247677365938821,
+        "val_softcalibrated@0.15": {
+          "precision": 0.13114754098360656,
+          "recall": 0.03333333333333333,
+          "f1": 0.053156146179401995
+        }
+      },
+      "ISO_baseline_v2v3": {
+        "n_optimizer_updates": 120,
+        "updates_per_s": 0.7736682853676213,
+        "peak_cuda_alloc_gib": 7.815121650695801,
+        "peak_cuda_reserved_gib": 7.97265625,
+        "grad_all_finite": true,
+        "param_all_finite": true,
+        "first_loss": 3.798419713973999,
+        "last_loss": 1.4929466247558594,
+        "loss_finite": true,
+        "val_loss": 1.847513214747111,
+        "val_softcalibrated@0.15": {
+          "precision": 0.0967741935483871,
+          "recall": 0.1375,
+          "f1": 0.11359724612736662
+        }
+      },
+      "ISO_candidate_v3v3": {
+        "n_optimizer_updates": 120,
+        "updates_per_s": 0.7570191607684527,
+        "peak_cuda_alloc_gib": 8.222981929779053,
+        "peak_cuda_reserved_gib": 8.349609375,
+        "grad_all_finite": true,
+        "param_all_finite": true,
+        "first_loss": 3.802018642425537,
+        "last_loss": 1.5016130208969116,
+        "loss_finite": true,
+        "val_loss": 1.8617620627085367,
+        "val_softcalibrated@0.15": {
+          "precision": 0.10175438596491228,
+          "recall": 0.12083333333333333,
+          "f1": 0.11047619047619048
+        }
+      }
+    }
+  }
+}

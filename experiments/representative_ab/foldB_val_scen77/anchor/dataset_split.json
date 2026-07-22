@@ -1,0 +1,91 @@
+{
+  "dataset_root": "./dataset",
+  "label_dir": "labels_3d_v3",
+  "scenarios": [
+    "scen05",
+    "scen77",
+    "scen144"
+  ],
+  "train_scenarios": [
+    "scen05",
+    "scen144"
+  ],
+  "val_scenarios": [
+    "scen77"
+  ],
+  "input_label_sha256": "7914fef8c23418c6dfb686fcebf5e5be5c21580d29f6daa9472aee0a9449dce7",
+  "stats": {
+    "all": {
+      "num_scenarios": 3,
+      "num_frames": 3337,
+      "num_nonempty_frames": 3285,
+      "num_boxes": 10516,
+      "num_vehicle_boxes": 6809,
+      "num_pedestrian_boxes": 3707
+    },
+    "train": {
+      "num_scenarios": 2,
+      "num_frames": 1978,
+      "num_nonempty_frames": 1926,
+      "num_boxes": 6726,
+      "num_vehicle_boxes": 4094,
+      "num_pedestrian_boxes": 2632
+    },
+    "val": {
+      "num_scenarios": 1,
+      "num_frames": 1359,
+      "num_nonempty_frames": 1359,
+      "num_boxes": 3790,
+      "num_vehicle_boxes": 2715,
+      "num_pedestrian_boxes": 1075
+    }
+  },
+  "per_scenario": {
+    "scen05": {
+      "num_frames": 557,
+      "num_nonempty_frames": 505,
+      "num_boxes": 1192,
+      "num_vehicle_boxes": 442,
+      "num_pedestrian_boxes": 750
+    },
+    "scen77": {
+      "num_frames": 1359,
+      "num_nonempty_frames": 1359,
+      "num_boxes": 3790,
+      "num_vehicle_boxes": 2715,
+      "num_pedestrian_boxes": 1075
+    },
+    "scen144": {
+      "num_frames": 1421,
+      "num_nonempty_frames": 1421,
+      "num_boxes": 5534,
+      "num_vehicle_boxes": 3652,
+      "num_pedestrian_boxes": 1882
+    }
+  },
+  "train_per_scenario": {
+    "scen05": {
+      "num_frames": 557,
+      "num_nonempty_frames": 505,
+      "num_boxes": 1192,
+      "num_vehicle_boxes": 442,
+      "num_pedestrian_boxes": 750
+    },
+    "scen144": {
+      "num_frames": 1421,
+      "num_nonempty_frames": 1421,
+      "num_boxes": 5534,
+      "num_vehicle_boxes": 3652,
+      "num_pedestrian_boxes": 1882
+    }
+  },
+  "val_per_scenario": {
+    "scen77": {
+      "num_frames": 1359,
+      "num_nonempty_frames": 1359,
+      "num_boxes": 3790,
+      "num_vehicle_boxes": 2715,
+      "num_pedestrian_boxes": 1075
+    }
+  }
+}

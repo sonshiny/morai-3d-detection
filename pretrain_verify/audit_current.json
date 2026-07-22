@@ -1,0 +1,56 @@
+{
+  "root": "/home/autonav/projects/morai-3d-detection/dataset",
+  "n_scenes": 3,
+  "calibration_present": true,
+  "scenes": [
+    {
+      "scenario": "scen05",
+      "critical": [],
+      "warn": [],
+      "n_labels": 557,
+      "n_ego": 557,
+      "n_lidar": 557,
+      "sync_saves": 557,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1192,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen77",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1359,
+      "n_ego": 1359,
+      "n_lidar": 1359,
+      "sync_saves": 1359,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3790,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen144",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1421,
+      "n_ego": 1421,
+      "n_lidar": 1421,
+      "sync_saves": 1421,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 5534,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    }
+  ],
+  "n_critical": 0
+}

@@ -1,0 +1,384 @@
+{
+  "init_sha": "782799804d4115c8afd90d06f59686336a614130bfde0abc25e2a5c8c80dfd38",
+  "anchor_sha": "fb7205d2708d10de8a7224d018461fe30b8a0e78a7ce22ec7526c6676777026e",
+  "device": "cuda",
+  "warmup": 20,
+  "steps": 100,
+  "val_frames": 120,
+  "grad_accum": 2,
+  "configs": {
+    "PROD_baseline_v2v3": {
+      "n_optimizer_updates": 120,
+      "n_dataloader_steps": 240,
+      "wall_s": 162.24295687675476,
+      "updates_per_s": 0.7396314903897866,
+      "dl_steps_per_s": 1.4792629807795732,
+      "peak_cuda_alloc_gib": 6.603374481201172,
+      "peak_cuda_reserved_gib": 6.81640625,
+      "grad_all_finite": true,
+      "param_all_finite": true,
+      "max_grad_norm": 45.860660552978516,
+      "first_loss": 5.722953796386719,
+      "last_loss": 2.03951358795166,
+      "loss_finite": true,
+      "val_loss": 1.8152402997016908,
+      "val_softcalibrated@0.15": {
+        "precision": 0.08333333333333333,
+        "recall": 0.0125,
+        "f1": 0.02173913043478261
+      },
+      "p3_recall_by_bin": {
+        "bins": [
+          {
+            "bin": "[0,1)",
+            "n_gt": 59,
+            "n_tracks": 2,
+            "n_frames": 33,
+            "n_matched": 3,
+            "recall": 0.05084745762711865,
+            "match_dist_mean": 1.6167600611416437,
+            "match_dist_median": 1.6472358877361524,
+            "match_dist_p95": 1.6494390931783542
+          },
+          {
+            "bin": "[1,3)",
+            "n_gt": 181,
+            "n_tracks": 2,
+            "n_frames": 94,
+            "n_matched": 0,
+            "recall": 0.0,
+            "match_dist_mean": null,
+            "match_dist_median": null,
+            "match_dist_p95": null
+          },
+          {
+            "bin": "[3,6)",
+            "n_gt": 0,
+            "n_tracks": 0,
+            "n_frames": 0,
+            "n_matched": 0,
+            "recall": null,
+            "match_dist_mean": null,
+            "match_dist_median": null,
+            "match_dist_p95": null
+          },
+          {
+            "bin": "[6,8)",
+            "n_gt": 0,
+            "n_tracks": 0,
+            "n_frames": 0,
+            "n_matched": 0,
+            "recall": null,
+            "match_dist_mean": null,
+            "match_dist_median": null,
+            "match_dist_p95": null
+          },
+          {
+            "bin": "[8,inf)",
+            "n_gt": 0,
+            "n_tracks": 0,
+            "n_frames": 0,
+            "n_matched": 0,
+            "recall": null,
+            "match_dist_mean": null,
+            "match_dist_median": null,
+            "match_dist_p95": null
+          }
+        ],
+        "note": "GT-conditioned recall only. unmatched prediction(33/36)\uc740 GT bin \uc18c\uc18d \uc815\uc758 \ubd88\uac00 \u2192 precision/F1 \uc544\ub2d8.",
+        "n_frames_evaluated": 120,
+        "total_gt": 240,
+        "n_pred_total": 36,
+        "n_pred_unmatched": 33,
+        "n_relspeed_missing": 0,
+        "membership": "production_validation_filter(_load_labels_v2)"
+      },
+      "anchor_sha": "fb7205d2708d10de8a7224d018461fe30b8a0e78a7ce22ec7526c6676777026e",
+      "train_gt": "v2",
+      "val_gt": "v3",
+      "depth": true
+    },
+    "PROD_candidate_v3v3": {
+      "n_optimizer_updates": 120,
+      "n_dataloader_steps": 240,
+      "wall_s": 156.78826570510864,
+      "updates_per_s": 0.765363399233582,
+      "dl_steps_per_s": 1.530726798467164,
+      "peak_cuda_alloc_gib": 7.008902072906494,
+      "peak_cuda_reserved_gib": 7.11328125,
+      "grad_all_finite": true,
+      "param_all_finite": true,
+      "max_grad_norm": 45.805999755859375,
+      "first_loss": 5.72696590423584,
+      "last_loss": 2.0563266277313232,
+      "loss_finite": true,
+      "val_loss": 1.8247677365938821,
+      "val_softcalibrated@0.15": {
+        "precision": 0.13114754098360656,
+        "recall": 0.03333333333333333,
+        "f1": 0.053156146179401995
+      },
+      "p3_recall_by_bin": {
+        "bins": [
+          {
+            "bin": "[0,1)",
+            "n_gt": 59,
+            "n_tracks": 2,
+            "n_frames": 33,
+            "n_matched": 8,
+            "recall": 0.13559322033898305,
+            "match_dist_mean": 1.5679055485625613,
+            "match_dist_median": 1.5986185162307867,
+            "match_dist_p95": 1.6479611023691514
+          },
+          {
+            "bin": "[1,3)",
+            "n_gt": 181,
+            "n_tracks": 2,
+            "n_frames": 94,
+            "n_matched": 0,
+            "recall": 0.0,
+            "match_dist_mean": null,
+            "match_dist_median": null,
+            "match_dist_p95": null
+          },
+          {
+            "bin": "[3,6)",
+            "n_gt": 0,
+            "n_tracks": 0,
+            "n_frames": 0,
+            "n_matched": 0,
+            "recall": null,
+            "match_dist_mean": null,
+            "match_dist_median": null,
+            "match_dist_p95": null
+          },
+          {
+            "bin": "[6,8)",
+            "n_gt": 0,
+            "n_tracks": 0,
+            "n_frames": 0,
+            "n_matched": 0,
+            "recall": null,
+            "match_dist_mean": null,
+            "match_dist_median": null,
+            "match_dist_p95": null
+          },
+          {
+            "bin": "[8,inf)",
+            "n_gt": 0,
+            "n_tracks": 0,
+            "n_frames": 0,
+            "n_matched": 0,
+            "recall": null,
+            "match_dist_mean": null,
+            "match_dist_median": null,
+            "match_dist_p95": null
+          }
+        ],
+        "note": "GT-conditioned recall only. unmatched prediction(53/61)\uc740 GT bin \uc18c\uc18d \uc815\uc758 \ubd88\uac00 \u2192 precision/F1 \uc544\ub2d8.",
+        "n_frames_evaluated": 120,
+        "total_gt": 240,
+        "n_pred_total": 61,
+        "n_pred_unmatched": 53,
+        "n_relspeed_missing": 0,
+        "membership": "production_validation_filter(_load_labels_v2)"
+      },
+      "anchor_sha": "fb7205d2708d10de8a7224d018461fe30b8a0e78a7ce22ec7526c6676777026e",
+      "train_gt": "v3",
+      "val_gt": "v3",
+      "depth": true
+    },
+    "ISO_baseline_v2v3": {
+      "n_optimizer_updates": 120,
+      "n_dataloader_steps": 240,
+      "wall_s": 155.10523343086243,
+      "updates_per_s": 0.7736682853676213,
+      "dl_steps_per_s": 1.5473365707352427,
+      "peak_cuda_alloc_gib": 7.815121650695801,
+      "peak_cuda_reserved_gib": 7.97265625,
+      "grad_all_finite": true,
+      "param_all_finite": true,
+      "max_grad_norm": 44.2264404296875,
+      "first_loss": 3.798419713973999,
+      "last_loss": 1.4929466247558594,
+      "loss_finite": true,
+      "val_loss": 1.847513214747111,
+      "val_softcalibrated@0.15": {
+        "precision": 0.0967741935483871,
+        "recall": 0.1375,
+        "f1": 0.11359724612736662
+      },
+      "p3_recall_by_bin": {
+        "bins": [
+          {
+            "bin": "[0,1)",
+            "n_gt": 59,
+            "n_tracks": 2,
+            "n_frames": 33,
+            "n_matched": 31,
+            "recall": 0.5254237288135594,
+            "match_dist_mean": 1.5076968331618603,
+            "match_dist_median": 1.500876653568642,
+            "match_dist_p95": 1.7584799060294478
+          },
+          {
+            "bin": "[1,3)",
+            "n_gt": 181,
+            "n_tracks": 2,
+            "n_frames": 94,
+            "n_matched": 2,
+            "recall": 0.011049723756906077,
+            "match_dist_mean": 1.6460991965470304,
+            "match_dist_median": 1.6460991965470304,
+            "match_dist_p95": 1.9259446783360545
+          },
+          {
+            "bin": "[3,6)",
+            "n_gt": 0,
+            "n_tracks": 0,
+            "n_frames": 0,
+            "n_matched": 0,
+            "recall": null,
+            "match_dist_mean": null,
+            "match_dist_median": null,
+            "match_dist_p95": null
+          },
+          {
+            "bin": "[6,8)",
+            "n_gt": 0,
+            "n_tracks": 0,
+            "n_frames": 0,
+            "n_matched": 0,
+            "recall": null,
+            "match_dist_mean": null,
+            "match_dist_median": null,
+            "match_dist_p95": null
+          },
+          {
+            "bin": "[8,inf)",
+            "n_gt": 0,
+            "n_tracks": 0,
+            "n_frames": 0,
+            "n_matched": 0,
+            "recall": null,
+            "match_dist_mean": null,
+            "match_dist_median": null,
+            "match_dist_p95": null
+          }
+        ],
+        "note": "GT-conditioned recall only. unmatched prediction(308/341)\uc740 GT bin \uc18c\uc18d \uc815\uc758 \ubd88\uac00 \u2192 precision/F1 \uc544\ub2d8.",
+        "n_frames_evaluated": 120,
+        "total_gt": 240,
+        "n_pred_total": 341,
+        "n_pred_unmatched": 308,
+        "n_relspeed_missing": 0,
+        "membership": "production_validation_filter(_load_labels_v2)"
+      },
+      "anchor_sha": "fb7205d2708d10de8a7224d018461fe30b8a0e78a7ce22ec7526c6676777026e",
+      "train_gt": "v2",
+      "val_gt": "v3",
+      "depth": false
+    },
+    "ISO_candidate_v3v3": {
+      "n_optimizer_updates": 120,
+      "n_dataloader_steps": 240,
+      "wall_s": 158.51646327972412,
+      "updates_per_s": 0.7570191607684527,
+      "dl_steps_per_s": 1.5140383215369053,
+      "peak_cuda_alloc_gib": 8.222981929779053,
+      "peak_cuda_reserved_gib": 8.349609375,
+      "grad_all_finite": true,
+      "param_all_finite": true,
+      "max_grad_norm": 44.17245864868164,
+      "first_loss": 3.802018642425537,
+      "last_loss": 1.5016130208969116,
+      "loss_finite": true,
+      "val_loss": 1.8617620627085367,
+      "val_softcalibrated@0.15": {
+        "precision": 0.10175438596491228,
+        "recall": 0.12083333333333333,
+        "f1": 0.11047619047619048
+      },
+      "p3_recall_by_bin": {
+        "bins": [
+          {
+            "bin": "[0,1)",
+            "n_gt": 59,
+            "n_tracks": 2,
+            "n_frames": 33,
+            "n_matched": 26,
+            "recall": 0.4406779661016949,
+            "match_dist_mean": 1.4624908861143893,
+            "match_dist_median": 1.4324014126394338,
+            "match_dist_p95": 1.745784107474127
+          },
+          {
+            "bin": "[1,3)",
+            "n_gt": 181,
+            "n_tracks": 2,
+            "n_frames": 94,
+            "n_matched": 3,
+            "recall": 0.016574585635359115,
+            "match_dist_mean": 1.3774684330145102,
+            "match_dist_median": 1.2980599737912626,
+            "match_dist_p95": 1.8594583820792137
+          },
+          {
+            "bin": "[3,6)",
+            "n_gt": 0,
+            "n_tracks": 0,
+            "n_frames": 0,
+            "n_matched": 0,
+            "recall": null,
+            "match_dist_mean": null,
+            "match_dist_median": null,
+            "match_dist_p95": null
+          },
+          {
+            "bin": "[6,8)",
+            "n_gt": 0,
+            "n_tracks": 0,
+            "n_frames": 0,
+            "n_matched": 0,
+            "recall": null,
+            "match_dist_mean": null,
+            "match_dist_median": null,
+            "match_dist_p95": null
+          },
+          {
+            "bin": "[8,inf)",
+            "n_gt": 0,
+            "n_tracks": 0,
+            "n_frames": 0,
+            "n_matched": 0,
+            "recall": null,
+            "match_dist_mean": null,
+            "match_dist_median": null,
+            "match_dist_p95": null
+          }
+        ],
+        "note": "GT-conditioned recall only. unmatched prediction(256/285)\uc740 GT bin \uc18c\uc18d \uc815\uc758 \ubd88\uac00 \u2192 precision/F1 \uc544\ub2d8.",
+        "n_frames_evaluated": 120,
+        "total_gt": 240,
+        "n_pred_total": 285,
+        "n_pred_unmatched": 256,
+        "n_relspeed_missing": 0,
+        "membership": "production_validation_filter(_load_labels_v2)"
+      },
+      "anchor_sha": "fb7205d2708d10de8a7224d018461fe30b8a0e78a7ce22ec7526c6676777026e",
+      "train_gt": "v3",
+      "val_gt": "v3",
+      "depth": false
+    }
+  },
+  "prod_sampler_order_identical": true,
+  "checkpoint_save_resume_ok": true,
+  "nondeterminism": {
+    "rerun_max_abs_loss_diff": 0.05654573440551758,
+    "note": "GPU grid_sample/deformable fallback backward(atomicAdd)\ub294 \ube44\uacb0\uc815\uc801 \u2192 bitwise \ub3d9\uc77c \uc8fc\uc7a5 \uc548 \ud568. \uc7ac\uc2e4\ud589 \ucd5c\ub300 loss \ucc28\uc774\ub85c \uc815\ub7c9\ud654.",
+    "first_loss_run1": 5.72696590423584,
+    "first_loss_run2": 5.726781845092773
+  },
+  "preflight_no_nan_inf": true
+}

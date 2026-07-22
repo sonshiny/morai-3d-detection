@@ -1,0 +1,838 @@
+{
+  "n": 40,
+  "extra_notes": [],
+  "items": [
+    {
+      "scen": "scen77",
+      "frame_id": 468,
+      "track_id": 6,
+      "class": "pedestrian",
+      "corr_dist": 0.9088,
+      "rel_speed": 3.9592564490890645,
+      "obj_speed": 0.0,
+      "ego_speed": 3.9592564490890645,
+      "obj_dt_ms": 81.0,
+      "ego_dt_ms": 81.0,
+      "buckets": [
+        "top20"
+      ],
+      "categories": [
+        "pedestrian"
+      ],
+      "camera": "cam_front",
+      "file": "scen77_f468_t6_cd0.909.png",
+      "stem": "live_000468"
+    },
+    {
+      "scen": "scen77",
+      "frame_id": 187,
+      "track_id": 3,
+      "class": "pedestrian",
+      "corr_dist": 0.8226,
+      "rel_speed": 3.741882422145384,
+      "obj_speed": 0.0,
+      "ego_speed": 3.741882422145384,
+      "obj_dt_ms": 96.0,
+      "ego_dt_ms": 96.0,
+      "buckets": [
+        "top20"
+      ],
+      "categories": [
+        "pedestrian"
+      ],
+      "camera": "cam_front",
+      "file": "scen77_f187_t3_cd0.823.png",
+      "stem": "live_000187"
+    },
+    {
+      "scen": "scen144",
+      "frame_id": 205,
+      "track_id": 5,
+      "class": "pedestrian",
+      "corr_dist": 0.7981,
+      "rel_speed": 2.9073139845948313,
+      "obj_speed": 0.0,
+      "ego_speed": 2.9073139845948313,
+      "obj_dt_ms": 100.0,
+      "ego_dt_ms": 100.0,
+      "buckets": [
+        "top20"
+      ],
+      "categories": [
+        "pedestrian"
+      ],
+      "camera": "cam_front",
+      "file": "scen144_f205_t5_cd0.798.png",
+      "stem": "live_000205"
+    },
+    {
+      "scen": "scen77",
+      "frame_id": 439,
+      "track_id": 5,
+      "class": "pedestrian",
+      "corr_dist": 0.793,
+      "rel_speed": 3.8369273879689016,
+      "obj_speed": 0.0,
+      "ego_speed": 3.8369273879689016,
+      "obj_dt_ms": 67.0,
+      "ego_dt_ms": 67.0,
+      "buckets": [
+        "top20"
+      ],
+      "categories": [
+        "pedestrian"
+      ],
+      "camera": "cam_front_right",
+      "file": "scen77_f439_t5_cd0.793.png",
+      "stem": "live_000439"
+    },
+    {
+      "scen": "scen05",
+      "frame_id": 466,
+      "track_id": 8,
+      "class": "pedestrian",
+      "corr_dist": 0.7667,
+      "rel_speed": 3.7818091939276024,
+      "obj_speed": 0.0,
+      "ego_speed": 3.7818091939276024,
+      "obj_dt_ms": 73.0,
+      "ego_dt_ms": 72.0,
+      "buckets": [
+        "top20"
+      ],
+      "categories": [
+        "pedestrian"
+      ],
+      "camera": "cam_front",
+      "file": "scen05_f466_t8_cd0.767.png",
+      "stem": "live_000466"
+    },
+    {
+      "scen": "scen05",
+      "frame_id": 100,
+      "track_id": 1,
+      "class": "vehicle",
+      "corr_dist": 0.7647,
+      "rel_speed": 6.558055294946713,
+      "obj_speed": 3.0538190974581316,
+      "ego_speed": 3.504245677494625,
+      "obj_dt_ms": 119.0,
+      "ego_dt_ms": 118.0,
+      "buckets": [
+        "top20"
+      ],
+      "categories": [
+        "oncoming"
+      ],
+      "camera": "cam_front",
+      "file": "scen05_f100_t1_cd0.765.png",
+      "stem": "live_000100"
+    },
+    {
+      "scen": "scen05",
+      "frame_id": 474,
+      "track_id": 8,
+      "class": "pedestrian",
+      "corr_dist": 0.7571,
+      "rel_speed": 3.8240431607321024,
+      "obj_speed": 0.0,
+      "ego_speed": 3.8240431607321024,
+      "obj_dt_ms": 78.0,
+      "ego_dt_ms": 77.0,
+      "buckets": [
+        "top20"
+      ],
+      "categories": [
+        "pedestrian"
+      ],
+      "camera": "cam_front",
+      "file": "scen05_f474_t8_cd0.757.png",
+      "stem": "live_000474"
+    },
+    {
+      "scen": "scen77",
+      "frame_id": 1198,
+      "track_id": 11,
+      "class": "vehicle",
+      "corr_dist": 0.7535,
+      "rel_speed": 1.8379581222992067,
+      "obj_speed": 4.111404987349215,
+      "ego_speed": 3.761559964784311,
+      "obj_dt_ms": 65.0,
+      "ego_dt_ms": 64.0,
+      "buckets": [
+        "top20"
+      ],
+      "categories": [
+        "same_dir_vehicle"
+      ],
+      "camera": "cam_front",
+      "file": "scen77_f1198_t11_cd0.753.png",
+      "stem": "live_001198"
+    },
+    {
+      "scen": "scen05",
+      "frame_id": 115,
+      "track_id": 1,
+      "class": "vehicle",
+      "corr_dist": 0.7509,
+      "rel_speed": 7.561471182230692,
+      "obj_speed": 3.8726214855056518,
+      "ego_speed": 3.688860088014566,
+      "obj_dt_ms": 98.0,
+      "ego_dt_ms": 98.0,
+      "buckets": [
+        "top20"
+      ],
+      "categories": [
+        "oncoming"
+      ],
+      "camera": "cam_front_left",
+      "file": "scen05_f115_t1_cd0.751.png",
+      "stem": "live_000115"
+    },
+    {
+      "scen": "scen77",
+      "frame_id": 1201,
+      "track_id": 11,
+      "class": "vehicle",
+      "corr_dist": 0.7499,
+      "rel_speed": 1.5856216931457174,
+      "obj_speed": 4.108888355747817,
+      "ego_speed": 3.8195882741483507,
+      "obj_dt_ms": 63.0,
+      "ego_dt_ms": 62.0,
+      "buckets": [
+        "top20"
+      ],
+      "categories": [
+        "same_dir_vehicle"
+      ],
+      "camera": "cam_front",
+      "file": "scen77_f1201_t11_cd0.750.png",
+      "stem": "live_001201"
+    },
+    {
+      "scen": "scen77",
+      "frame_id": 178,
+      "track_id": 3,
+      "class": "pedestrian",
+      "corr_dist": 0.7299,
+      "rel_speed": 3.8697977535578176,
+      "obj_speed": 0.0,
+      "ego_speed": 3.8697977535578176,
+      "obj_dt_ms": 70.0,
+      "ego_dt_ms": 70.0,
+      "buckets": [
+        "top20"
+      ],
+      "categories": [
+        "pedestrian"
+      ],
+      "camera": "cam_front_right",
+      "file": "scen77_f178_t3_cd0.730.png",
+      "stem": "live_000178"
+    },
+    {
+      "scen": "scen05",
+      "frame_id": 118,
+      "track_id": 1,
+      "class": "vehicle",
+      "corr_dist": 0.7163,
+      "rel_speed": 7.547832028518562,
+      "obj_speed": 3.858520247452383,
+      "ego_speed": 3.689322244446608,
+      "obj_dt_ms": 93.0,
+      "ego_dt_ms": 93.0,
+      "buckets": [
+        "top20"
+      ],
+      "categories": [
+        "oncoming"
+      ],
+      "camera": "cam_front_left",
+      "file": "scen05_f118_t1_cd0.716.png",
+      "stem": "live_000118"
+    },
+    {
+      "scen": "scen77",
+      "frame_id": 463,
+      "track_id": 6,
+      "class": "pedestrian",
+      "corr_dist": 0.716,
+      "rel_speed": 3.852229517705703,
+      "obj_speed": 0.0,
+      "ego_speed": 3.852229517705703,
+      "obj_dt_ms": 66.0,
+      "ego_dt_ms": 66.0,
+      "buckets": [
+        "top20"
+      ],
+      "categories": [
+        "pedestrian"
+      ],
+      "camera": "cam_front",
+      "file": "scen77_f463_t6_cd0.716.png",
+      "stem": "live_000463"
+    },
+    {
+      "scen": "scen77",
+      "frame_id": 187,
+      "track_id": 0,
+      "class": "vehicle",
+      "corr_dist": 0.6823,
+      "rel_speed": 3.0879666587543912,
+      "obj_speed": 4.156145734932787,
+      "ego_speed": 3.741882422145384,
+      "obj_dt_ms": 96.0,
+      "ego_dt_ms": 96.0,
+      "buckets": [
+        "top20"
+      ],
+      "categories": [],
+      "camera": "cam_front_right",
+      "file": "scen77_f187_t0_cd0.682.png",
+      "stem": "live_000187"
+    },
+    {
+      "scen": "scen05",
+      "frame_id": 465,
+      "track_id": 8,
+      "class": "pedestrian",
+      "corr_dist": 0.6535,
+      "rel_speed": 3.796139354839073,
+      "obj_speed": 0.0,
+      "ego_speed": 3.796139354839073,
+      "obj_dt_ms": 39.0,
+      "ego_dt_ms": 59.0,
+      "buckets": [
+        "top20"
+      ],
+      "categories": [
+        "pedestrian"
+      ],
+      "camera": "cam_front",
+      "file": "scen05_f465_t8_cd0.653.png",
+      "stem": "live_000465"
+    },
+    {
+      "scen": "scen05",
+      "frame_id": 135,
+      "track_id": 2,
+      "class": "vehicle",
+      "corr_dist": 0.6496,
+      "rel_speed": 6.007116342147774,
+      "obj_speed": 2.862110357760511,
+      "ego_speed": 3.838513086807651,
+      "obj_dt_ms": 108.0,
+      "ego_dt_ms": 107.0,
+      "buckets": [
+        "top20"
+      ],
+      "categories": [
+        "oncoming"
+      ],
+      "camera": "cam_front",
+      "file": "scen05_f135_t2_cd0.650.png",
+      "stem": "live_000135"
+    },
+    {
+      "scen": "scen05",
+      "frame_id": 449,
+      "track_id": 7,
+      "class": "pedestrian",
+      "corr_dist": 0.6321,
+      "rel_speed": 3.9562187559552404,
+      "obj_speed": 0.0,
+      "ego_speed": 3.9562187559552404,
+      "obj_dt_ms": 85.0,
+      "ego_dt_ms": 85.0,
+      "buckets": [
+        "top20"
+      ],
+      "categories": [
+        "pedestrian"
+      ],
+      "camera": "cam_front_right",
+      "file": "scen05_f449_t7_cd0.632.png",
+      "stem": "live_000449"
+    },
+    {
+      "scen": "scen77",
+      "frame_id": 175,
+      "track_id": 3,
+      "class": "pedestrian",
+      "corr_dist": 0.6146,
+      "rel_speed": 3.8160273916117813,
+      "obj_speed": 0.0,
+      "ego_speed": 3.8160273916117813,
+      "obj_dt_ms": 61.0,
+      "ego_dt_ms": 61.0,
+      "buckets": [
+        "top20"
+      ],
+      "categories": [
+        "pedestrian"
+      ],
+      "camera": "cam_front_right",
+      "file": "scen77_f175_t3_cd0.615.png",
+      "stem": "live_000175"
+    },
+    {
+      "scen": "scen77",
+      "frame_id": 150,
+      "track_id": 2,
+      "class": "vehicle",
+      "corr_dist": 0.6117,
+      "rel_speed": 8.130658195192309,
+      "obj_speed": 4.107199544701961,
+      "ego_speed": 4.024393968715391,
+      "obj_dt_ms": 76.0,
+      "ego_dt_ms": 76.0,
+      "buckets": [
+        "top20"
+      ],
+      "categories": [
+        "oncoming"
+      ],
+      "camera": "cam_front_left",
+      "file": "scen77_f150_t2_cd0.612.png",
+      "stem": "live_000150"
+    },
+    {
+      "scen": "scen05",
+      "frame_id": 135,
+      "track_id": 0,
+      "class": "vehicle",
+      "corr_dist": 0.6104,
+      "rel_speed": 5.652794269914417,
+      "obj_speed": 4.08185484553285,
+      "ego_speed": 3.838513086807651,
+      "obj_dt_ms": 108.0,
+      "ego_dt_ms": 107.0,
+      "buckets": [
+        "top20"
+      ],
+      "categories": [],
+      "camera": "cam_front_right",
+      "file": "scen05_f135_t0_cd0.610.png",
+      "stem": "live_000135"
+    },
+    {
+      "scen": "scen05",
+      "frame_id": 128,
+      "track_id": 0,
+      "class": "vehicle",
+      "corr_dist": 0.3998,
+      "rel_speed": 5.669453144884242,
+      "obj_speed": 4.08900145390045,
+      "ego_speed": 3.815023716771413,
+      "obj_dt_ms": 75.0,
+      "ego_dt_ms": 75.0,
+      "buckets": [
+        "mid_0.2_0.4"
+      ],
+      "categories": [],
+      "camera": "cam_front_right",
+      "file": "scen05_f128_t0_cd0.400.png",
+      "stem": "live_000128"
+    },
+    {
+      "scen": "scen05",
+      "frame_id": 472,
+      "track_id": 8,
+      "class": "pedestrian",
+      "corr_dist": 0.3997,
+      "rel_speed": 3.8406666986076856,
+      "obj_speed": 0.0,
+      "ego_speed": 3.8406666986076856,
+      "obj_dt_ms": 38.0,
+      "ego_dt_ms": 37.0,
+      "buckets": [
+        "mid_0.2_0.4"
+      ],
+      "categories": [
+        "pedestrian"
+      ],
+      "camera": "cam_front",
+      "file": "scen05_f472_t8_cd0.400.png",
+      "stem": "live_000472"
+    },
+    {
+      "scen": "scen77",
+      "frame_id": 86,
+      "track_id": 1,
+      "class": "vehicle",
+      "corr_dist": 0.3994,
+      "rel_speed": 5.000075615987417,
+      "obj_speed": 1.7177241484010177,
+      "ego_speed": 3.2900987723603863,
+      "obj_dt_ms": 76.0,
+      "ego_dt_ms": 76.0,
+      "buckets": [
+        "mid_0.2_0.4"
+      ],
+      "categories": [],
+      "camera": "cam_front",
+      "file": "scen77_f86_t1_cd0.399.png",
+      "stem": "live_000086"
+    },
+    {
+      "scen": "scen77",
+      "frame_id": 1226,
+      "track_id": 11,
+      "class": "vehicle",
+      "corr_dist": 0.399,
+      "rel_speed": 0.32750490297462803,
+      "obj_speed": 4.1313683084421315,
+      "ego_speed": 3.9093917599204264,
+      "obj_dt_ms": 44.0,
+      "ego_dt_ms": 86.0,
+      "buckets": [
+        "mid_0.2_0.4"
+      ],
+      "categories": [
+        "stationary",
+        "same_dir_vehicle"
+      ],
+      "camera": "cam_front",
+      "file": "scen77_f1226_t11_cd0.399.png",
+      "stem": "live_001226"
+    },
+    {
+      "scen": "scen77",
+      "frame_id": 555,
+      "track_id": 6,
+      "class": "pedestrian",
+      "corr_dist": 0.3987,
+      "rel_speed": 4.148923865069751,
+      "obj_speed": 0.0,
+      "ego_speed": 4.148923865069751,
+      "obj_dt_ms": 97.0,
+      "ego_dt_ms": 97.0,
+      "buckets": [
+        "mid_0.2_0.4"
+      ],
+      "categories": [
+        "pedestrian"
+      ],
+      "camera": "cam_front",
+      "file": "scen77_f555_t6_cd0.399.png",
+      "stem": "live_000555"
+    },
+    {
+      "scen": "scen77",
+      "frame_id": 1205,
+      "track_id": 11,
+      "class": "vehicle",
+      "corr_dist": 0.3978,
+      "rel_speed": 1.2818808333367129,
+      "obj_speed": 4.110011830883216,
+      "ego_speed": 3.7170975897333713,
+      "obj_dt_ms": 28.0,
+      "ego_dt_ms": 42.0,
+      "buckets": [
+        "mid_0.2_0.4"
+      ],
+      "categories": [
+        "same_dir_vehicle"
+      ],
+      "camera": "cam_front",
+      "file": "scen77_f1205_t11_cd0.398.png",
+      "stem": "live_001205"
+    },
+    {
+      "scen": "scen144",
+      "frame_id": 286,
+      "track_id": 4,
+      "class": "pedestrian",
+      "corr_dist": 0.3973,
+      "rel_speed": 3.6493414214307762,
+      "obj_speed": 0.0,
+      "ego_speed": 3.6493414214307762,
+      "obj_dt_ms": 102.0,
+      "ego_dt_ms": 102.0,
+      "buckets": [
+        "mid_0.2_0.4"
+      ],
+      "categories": [
+        "pedestrian"
+      ],
+      "camera": "cam_front_left",
+      "file": "scen144_f286_t4_cd0.397.png",
+      "stem": "live_000286"
+    },
+    {
+      "scen": "scen05",
+      "frame_id": 119,
+      "track_id": 2,
+      "class": "vehicle",
+      "corr_dist": 0.3972,
+      "rel_speed": 5.740490218678279,
+      "obj_speed": 2.127621613445398,
+      "ego_speed": 3.7465943078351502,
+      "obj_dt_ms": 74.0,
+      "ego_dt_ms": 74.0,
+      "buckets": [
+        "mid_0.2_0.4"
+      ],
+      "categories": [],
+      "camera": "cam_front",
+      "file": "scen05_f119_t2_cd0.397.png",
+      "stem": "live_000119"
+    },
+    {
+      "scen": "scen05",
+      "frame_id": 119,
+      "track_id": 0,
+      "class": "vehicle",
+      "corr_dist": 0.3954,
+      "rel_speed": 5.597232658423625,
+      "obj_speed": 4.103831357402495,
+      "ego_speed": 3.7465943078351502,
+      "obj_dt_ms": 74.0,
+      "ego_dt_ms": 74.0,
+      "buckets": [
+        "mid_0.2_0.4"
+      ],
+      "categories": [],
+      "camera": "cam_front_right",
+      "file": "scen05_f119_t0_cd0.395.png",
+      "stem": "live_000119"
+    },
+    {
+      "scen": "scen144",
+      "frame_id": 540,
+      "track_id": 6,
+      "class": "pedestrian",
+      "corr_dist": 0.3947,
+      "rel_speed": 4.0979030070430635,
+      "obj_speed": 0.0,
+      "ego_speed": 4.0979030070430635,
+      "obj_dt_ms": 102.0,
+      "ego_dt_ms": 102.0,
+      "buckets": [
+        "mid_0.2_0.4"
+      ],
+      "categories": [
+        "pedestrian"
+      ],
+      "camera": "cam_front",
+      "file": "scen144_f540_t6_cd0.395.png",
+      "stem": "live_000540"
+    },
+    {
+      "scen": "scen05",
+      "frame_id": 0,
+      "track_id": 0,
+      "class": "vehicle",
+      "corr_dist": 0.0,
+      "rel_speed": 0.00021763044728812162,
+      "obj_speed": 0.0,
+      "ego_speed": 0.00021763044728812162,
+      "obj_dt_ms": 55.0,
+      "ego_dt_ms": 55.0,
+      "buckets": [
+        "small_lt0.05"
+      ],
+      "categories": [
+        "stationary"
+      ],
+      "camera": "cam_front",
+      "file": "scen05_f0_t0_cd0.000.png",
+      "stem": "live_000000"
+    },
+    {
+      "scen": "scen05",
+      "frame_id": 0,
+      "track_id": 1,
+      "class": "vehicle",
+      "corr_dist": 0.0,
+      "rel_speed": 0.00021763044728812162,
+      "obj_speed": 0.0,
+      "ego_speed": 0.00021763044728812162,
+      "obj_dt_ms": 55.0,
+      "ego_dt_ms": 55.0,
+      "buckets": [
+        "small_lt0.05"
+      ],
+      "categories": [
+        "stationary"
+      ],
+      "camera": "cam_front",
+      "file": "scen05_f0_t1_cd0.000.png",
+      "stem": "live_000000"
+    },
+    {
+      "scen": "scen05",
+      "frame_id": 0,
+      "track_id": 2,
+      "class": "vehicle",
+      "corr_dist": 0.0,
+      "rel_speed": 0.00021763044728812162,
+      "obj_speed": 0.0,
+      "ego_speed": 0.00021763044728812162,
+      "obj_dt_ms": 55.0,
+      "ego_dt_ms": 55.0,
+      "buckets": [
+        "small_lt0.05"
+      ],
+      "categories": [
+        "stationary"
+      ],
+      "camera": "cam_front",
+      "file": "scen05_f0_t2_cd0.000.png",
+      "stem": "live_000000"
+    },
+    {
+      "scen": "scen77",
+      "frame_id": 0,
+      "track_id": 1,
+      "class": "vehicle",
+      "corr_dist": 0.0,
+      "rel_speed": 0.0,
+      "obj_speed": 0.0,
+      "ego_speed": 0.0,
+      "obj_dt_ms": 50.0,
+      "ego_dt_ms": 49.0,
+      "buckets": [
+        "small_lt0.05"
+      ],
+      "categories": [
+        "stationary"
+      ],
+      "camera": "cam_front",
+      "file": "scen77_f0_t1_cd0.000.png",
+      "stem": "live_000000"
+    },
+    {
+      "scen": "scen77",
+      "frame_id": 0,
+      "track_id": 2,
+      "class": "vehicle",
+      "corr_dist": 0.0,
+      "rel_speed": 0.0,
+      "obj_speed": 0.0,
+      "ego_speed": 0.0,
+      "obj_dt_ms": 50.0,
+      "ego_dt_ms": 49.0,
+      "buckets": [
+        "small_lt0.05"
+      ],
+      "categories": [
+        "stationary"
+      ],
+      "camera": "cam_front",
+      "file": "scen77_f0_t2_cd0.000.png",
+      "stem": "live_000000"
+    },
+    {
+      "scen": "scen77",
+      "frame_id": 742,
+      "track_id": 7,
+      "class": "vehicle",
+      "corr_dist": 0.0,
+      "rel_speed": 0.18753333612162099,
+      "obj_speed": 1.4372040217032513,
+      "ego_speed": 1.2497555625929424,
+      "obj_dt_ms": -6.0,
+      "ego_dt_ms": -7.0,
+      "buckets": [
+        "small_lt0.05"
+      ],
+      "categories": [
+        "stationary",
+        "same_dir_vehicle"
+      ],
+      "camera": "cam_front",
+      "file": "scen77_f742_t7_cd0.000.png",
+      "stem": "live_000742"
+    },
+    {
+      "scen": "scen77",
+      "frame_id": 1008,
+      "track_id": 9,
+      "class": "pedestrian",
+      "corr_dist": 0.0,
+      "rel_speed": 0.041851622524634154,
+      "obj_speed": 0.0,
+      "ego_speed": 0.041851622524634154,
+      "obj_dt_ms": -12.0,
+      "ego_dt_ms": -13.0,
+      "buckets": [
+        "small_lt0.05"
+      ],
+      "categories": [
+        "pedestrian",
+        "stationary"
+      ],
+      "camera": "cam_front",
+      "file": "scen77_f1008_t9_cd0.000.png",
+      "stem": "live_001008"
+    },
+    {
+      "scen": "scen144",
+      "frame_id": 0,
+      "track_id": 0,
+      "class": "vehicle",
+      "corr_dist": 0.0,
+      "rel_speed": 0.0,
+      "obj_speed": 0.0,
+      "ego_speed": 0.0,
+      "obj_dt_ms": 27.0,
+      "ego_dt_ms": 27.0,
+      "buckets": [
+        "small_lt0.05"
+      ],
+      "categories": [
+        "stationary"
+      ],
+      "camera": "cam_front",
+      "file": "scen144_f0_t0_cd0.000.png",
+      "stem": "live_000000"
+    },
+    {
+      "scen": "scen144",
+      "frame_id": 0,
+      "track_id": 1,
+      "class": "vehicle",
+      "corr_dist": 0.0,
+      "rel_speed": 0.0,
+      "obj_speed": 0.0,
+      "ego_speed": 0.0,
+      "obj_dt_ms": 27.0,
+      "ego_dt_ms": 27.0,
+      "buckets": [
+        "small_lt0.05"
+      ],
+      "categories": [
+        "stationary"
+      ],
+      "camera": "cam_front",
+      "file": "scen144_f0_t1_cd0.000.png",
+      "stem": "live_000000"
+    },
+    {
+      "scen": "scen144",
+      "frame_id": 688,
+      "track_id": 9,
+      "class": "pedestrian",
+      "corr_dist": 0.0,
+      "rel_speed": 0.004599744407637217,
+      "obj_speed": 0.0,
+      "ego_speed": 0.004599744407637217,
+      "obj_dt_ms": 7.0,
+      "ego_dt_ms": 7.0,
+      "buckets": [
+        "small_lt0.05"
+      ],
+      "categories": [
+        "pedestrian",
+        "stationary"
+      ],
+      "camera": "cam_front",
+      "file": "scen144_f688_t9_cd0.000.png",
+      "stem": "live_000688"
+    }
+  ]
+}

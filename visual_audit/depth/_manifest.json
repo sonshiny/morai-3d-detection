@@ -1,0 +1,92 @@
+[
+  {
+    "scen": "scen05",
+    "cam": "cam_front",
+    "stem": "live_000255",
+    "file": "scen05_cam_front_live_000255_depth.png",
+    "n_depth_pts": 2782,
+    "n_movers": 4,
+    "max_rel_speed": 4.066823564523861,
+    "mover_visible_in_cam": 4
+  },
+  {
+    "scen": "scen05",
+    "cam": "cam_front_left",
+    "stem": "live_000338",
+    "file": "scen05_cam_front_left_live_000338_depth.png",
+    "n_depth_pts": 2661,
+    "n_movers": 3,
+    "max_rel_speed": 4.107274609662102,
+    "mover_visible_in_cam": 3
+  },
+  {
+    "scen": "scen05",
+    "cam": "cam_front_right",
+    "stem": "live_000481",
+    "file": "scen05_cam_front_right_live_000481_depth.png",
+    "n_depth_pts": 3586,
+    "n_movers": 2,
+    "max_rel_speed": 3.7571922975721987,
+    "mover_visible_in_cam": 2
+  },
+  {
+    "scen": "scen77",
+    "cam": "cam_front",
+    "stem": "live_000972",
+    "file": "scen77_cam_front_live_000972_depth.png",
+    "n_depth_pts": 3397,
+    "n_movers": 5,
+    "max_rel_speed": 2.248444952287966,
+    "mover_visible_in_cam": 5
+  },
+  {
+    "scen": "scen77",
+    "cam": "cam_front_left",
+    "stem": "live_001330",
+    "file": "scen77_cam_front_left_live_001330_depth.png",
+    "n_depth_pts": 4094,
+    "n_movers": 3,
+    "max_rel_speed": 5.852918517220927,
+    "mover_visible_in_cam": 1
+  },
+  {
+    "scen": "scen77",
+    "cam": "cam_front_right",
+    "stem": "live_000456",
+    "file": "scen77_cam_front_right_live_000456_depth.png",
+    "n_depth_pts": 3572,
+    "n_movers": 3,
+    "max_rel_speed": 3.814791220368912,
+    "mover_visible_in_cam": 3
+  },
+  {
+    "scen": "scen144",
+    "cam": "cam_front",
+    "stem": "live_000211",
+    "file": "scen144_cam_front_live_000211_depth.png",
+    "n_depth_pts": 2980,
+    "n_movers": 6,
+    "max_rel_speed": 3.4040637107807323,
+    "mover_visible_in_cam": 6
+  },
+  {
+    "scen": "scen144",
+    "cam": "cam_front_left",
+    "stem": "live_000198",
+    "file": "scen144_cam_front_left_live_000198_depth.png",
+    "n_depth_pts": 2576,
+    "n_movers": 6,
+    "max_rel_speed": 2.7305554970912307,
+    "mover_visible_in_cam": 6
+  },
+  {
+    "scen": "scen144",
+    "cam": "cam_front_right",
+    "stem": "live_001390",
+    "file": "scen144_cam_front_right_live_001390_depth.png",
+    "n_depth_pts": 4128,
+    "n_movers": 4,
+    "max_rel_speed": 5.455895616333274,
+    "mover_visible_in_cam": 4
+  }
+]

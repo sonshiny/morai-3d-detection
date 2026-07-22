@@ -1,0 +1,137 @@
+{
+  "gt_version": "v3",
+  "scenarios": [
+    "scen05",
+    "scen77",
+    "scen144"
+  ],
+  "bin_edges": [
+    0.0,
+    1.0,
+    3.0,
+    6.0,
+    8.0,
+    null
+  ],
+  "match_radius_m": 2.0,
+  "halfwidth": 3,
+  "n_boxes_total": 10516,
+  "gt_distribution": [
+    {
+      "bin": "[0,1)",
+      "lo": 0.0,
+      "hi": 1.0,
+      "n_gt": 3482,
+      "n_tracks": 15,
+      "n_frames": 1773,
+      "amount_removed_p50": 0.0143,
+      "amount_removed_p95": 0.1324449999999998,
+      "amount_removed_mean": 0.03311998851234923,
+      "amount_removed_max": 0.5479
+    },
+    {
+      "bin": "[1,3)",
+      "lo": 1.0,
+      "hi": 3.0,
+      "n_gt": 2017,
+      "n_tracks": 19,
+      "n_frames": 1033,
+      "amount_removed_p50": 0.0643,
+      "amount_removed_p95": 0.2675399999999999,
+      "amount_removed_mean": 0.09012855726326229,
+      "amount_removed_max": 0.7981
+    },
+    {
+      "bin": "[3,6)",
+      "lo": 3.0,
+      "hi": 6.0,
+      "n_gt": 4836,
+      "n_tracks": 42,
+      "n_frames": 2335,
+      "amount_removed_p50": 0.14075,
+      "amount_removed_p95": 0.3495,
+      "amount_removed_mean": 0.15722336641852772,
+      "amount_removed_max": 0.9088
+    },
+    {
+      "bin": "[6,8)",
+      "lo": 6.0,
+      "hi": 8.0,
+      "n_gt": 172,
+      "n_tracks": 7,
+      "n_frames": 146,
+      "amount_removed_p50": 0.20800000000000002,
+      "amount_removed_p95": 0.5355449999999999,
+      "amount_removed_mean": 0.23997093023255814,
+      "amount_removed_max": 0.7647
+    },
+    {
+      "bin": "[8,inf)",
+      "lo": 8.0,
+      "hi": null,
+      "n_gt": 9,
+      "n_tracks": 1,
+      "n_frames": 9,
+      "amount_removed_p50": 0.3029,
+      "amount_removed_p95": 0.5079799999999999,
+      "amount_removed_mean": 0.30017777777777777,
+      "amount_removed_max": 0.6117
+    }
+  ],
+  "ego_speed_audit": {
+    "scen05": {
+      "n_frames": 557,
+      "boundary_frames": 6,
+      "method_counts": {
+        "linreg": 557
+      },
+      "n_used_hist": {
+        "4": 2,
+        "5": 2,
+        "6": 2,
+        "7": 551
+      },
+      "ego_speed_p50": 4.028652844348889,
+      "ego_speed_p95": 4.135333963651577,
+      "ego_speed_max": 4.170437120238934,
+      "halfwidth": 3
+    },
+    "scen77": {
+      "n_frames": 1359,
+      "boundary_frames": 6,
+      "method_counts": {
+        "linreg": 1359
+      },
+      "n_used_hist": {
+        "4": 2,
+        "5": 2,
+        "6": 2,
+        "7": 1353
+      },
+      "ego_speed_p50": 3.919446453989953,
+      "ego_speed_p95": 4.117868462564158,
+      "ego_speed_max": 4.205221624680202,
+      "halfwidth": 3
+    },
+    "scen144": {
+      "n_frames": 1421,
+      "boundary_frames": 6,
+      "method_counts": {
+        "linreg": 1421
+      },
+      "n_used_hist": {
+        "4": 2,
+        "5": 2,
+        "6": 2,
+        "7": 1415
+      },
+      "ego_speed_p50": 4.008780780128277,
+      "ego_speed_p95": 4.121564861839424,
+      "ego_speed_max": 4.215478431574802,
+      "halfwidth": 3
+    }
+  },
+  "high_speed_warnings": [
+    "bin [8,inf): n_gt=9 (<30, n_tracks=1) → 표본 부족, 이 구간으로 모델 우열/노이즈 결론 금지."
+  ]
+}

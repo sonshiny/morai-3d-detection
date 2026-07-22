@@ -1,0 +1,91 @@
+{
+  "dataset_root": "./dataset",
+  "label_dir": "labels_3d_v3",
+  "scenarios": [
+    "scen05",
+    "scen77",
+    "scen144"
+  ],
+  "train_scenarios": [
+    "scen77",
+    "scen144"
+  ],
+  "val_scenarios": [
+    "scen05"
+  ],
+  "input_label_sha256": "78988be15edcc24333dad8d1b102642065d43de850321b83e0e32180280552f7",
+  "stats": {
+    "all": {
+      "num_scenarios": 3,
+      "num_frames": 3337,
+      "num_nonempty_frames": 3285,
+      "num_boxes": 10516,
+      "num_vehicle_boxes": 6809,
+      "num_pedestrian_boxes": 3707
+    },
+    "train": {
+      "num_scenarios": 2,
+      "num_frames": 2780,
+      "num_nonempty_frames": 2780,
+      "num_boxes": 9324,
+      "num_vehicle_boxes": 6367,
+      "num_pedestrian_boxes": 2957
+    },
+    "val": {
+      "num_scenarios": 1,
+      "num_frames": 557,
+      "num_nonempty_frames": 505,
+      "num_boxes": 1192,
+      "num_vehicle_boxes": 442,
+      "num_pedestrian_boxes": 750
+    }
+  },
+  "per_scenario": {
+    "scen05": {
+      "num_frames": 557,
+      "num_nonempty_frames": 505,
+      "num_boxes": 1192,
+      "num_vehicle_boxes": 442,
+      "num_pedestrian_boxes": 750
+    },
+    "scen77": {
+      "num_frames": 1359,
+      "num_nonempty_frames": 1359,
+      "num_boxes": 3790,
+      "num_vehicle_boxes": 2715,
+      "num_pedestrian_boxes": 1075
+    },
+    "scen144": {
+      "num_frames": 1421,
+      "num_nonempty_frames": 1421,
+      "num_boxes": 5534,
+      "num_vehicle_boxes": 3652,
+      "num_pedestrian_boxes": 1882
+    }
+  },
+  "train_per_scenario": {
+    "scen77": {
+      "num_frames": 1359,
+      "num_nonempty_frames": 1359,
+      "num_boxes": 3790,
+      "num_vehicle_boxes": 2715,
+      "num_pedestrian_boxes": 1075
+    },
+    "scen144": {
+      "num_frames": 1421,
+      "num_nonempty_frames": 1421,
+      "num_boxes": 5534,
+      "num_vehicle_boxes": 3652,
+      "num_pedestrian_boxes": 1882
+    }
+  },
+  "val_per_scenario": {
+    "scen05": {
+      "num_frames": 557,
+      "num_nonempty_frames": 505,
+      "num_boxes": 1192,
+      "num_vehicle_boxes": 442,
+      "num_pedestrian_boxes": 750
+    }
+  }
+}

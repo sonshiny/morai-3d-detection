@@ -1,0 +1,145 @@
+{
+  "v2_natural": 9124,
+  "v3_natural": 9113,
+  "common": 9112,
+  "v2_only": 12,
+  "v3_only": 1,
+  "v2_per_scen": {
+    "scen05": 1022,
+    "scen77": 3265,
+    "scen144": 4837
+  },
+  "v3_per_scen": {
+    "scen05": 1018,
+    "scen77": 3261,
+    "scen144": 4834
+  },
+  "common_intersection_mode_boxes": 9112,
+  "expected": {
+    "v2": 9124,
+    "v3": 9113,
+    "common": 9112,
+    "v2_only": 12,
+    "v3_only": 1
+  },
+  "diffs": [
+    {
+      "kind": "v2_only",
+      "scen": "scen05",
+      "frame_id": 65,
+      "track_id": 2,
+      "v2_radial": 49.979621471212766,
+      "v3_radial": 50.22542674910786,
+      "boundary_cross": true
+    },
+    {
+      "kind": "v2_only",
+      "scen": "scen05",
+      "frame_id": 191,
+      "track_id": 3,
+      "v2_radial": 49.867000704239516,
+      "v3_radial": 50.11410460000258,
+      "boundary_cross": true
+    },
+    {
+      "kind": "v2_only",
+      "scen": "scen05",
+      "frame_id": 227,
+      "track_id": 4,
+      "v2_radial": 49.625821400646274,
+      "v3_radial": 50.028574448808754,
+      "boundary_cross": true
+    },
+    {
+      "kind": "v2_only",
+      "scen": "scen05",
+      "frame_id": 280,
+      "track_id": 6,
+      "v2_radial": 49.972111480491954,
+      "v3_radial": 50.27227387387605,
+      "boundary_cross": true
+    },
+    {
+      "kind": "v2_only",
+      "scen": "scen144",
+      "frame_id": 243,
+      "track_id": 5,
+      "v2_radial": 49.930943887346466,
+      "v3_radial": 50.07276202108288,
+      "boundary_cross": true
+    },
+    {
+      "kind": "v2_only",
+      "scen": "scen144",
+      "frame_id": 543,
+      "track_id": 7,
+      "v2_radial": 49.92160713726773,
+      "v3_radial": 50.010185856183334,
+      "boundary_cross": true
+    },
+    {
+      "kind": "v2_only",
+      "scen": "scen144",
+      "frame_id": 931,
+      "track_id": 10,
+      "v2_radial": 49.97362841326344,
+      "v3_radial": 50.060323252352255,
+      "boundary_cross": true
+    },
+    {
+      "kind": "v2_only",
+      "scen": "scen144",
+      "frame_id": 1013,
+      "track_id": 14,
+      "v2_radial": 49.76384610423057,
+      "v3_radial": 50.0194712388086,
+      "boundary_cross": true
+    },
+    {
+      "kind": "v2_only",
+      "scen": "scen77",
+      "frame_id": 675,
+      "track_id": 8,
+      "v2_radial": 49.8397203903451,
+      "v3_radial": 50.0035210666209,
+      "boundary_cross": true
+    },
+    {
+      "kind": "v2_only",
+      "scen": "scen77",
+      "frame_id": 934,
+      "track_id": 10,
+      "v2_radial": 49.936945309605264,
+      "v3_radial": 50.177887455930225,
+      "boundary_cross": true
+    },
+    {
+      "kind": "v2_only",
+      "scen": "scen77",
+      "frame_id": 1333,
+      "track_id": 11,
+      "v2_radial": 49.966768377768,
+      "v3_radial": 50.0273027418029,
+      "boundary_cross": true
+    },
+    {
+      "kind": "v2_only",
+      "scen": "scen77",
+      "frame_id": 1337,
+      "track_id": 13,
+      "v2_radial": 49.993361374401445,
+      "v3_radial": 50.03747343281833,
+      "boundary_cross": true
+    },
+    {
+      "kind": "v3_only",
+      "scen": "scen144",
+      "frame_id": 924,
+      "track_id": 10,
+      "v3_radial": 49.995191882903015,
+      "v2_radial": 50.01160702446984,
+      "boundary_cross": true
+    }
+  ],
+  "n_boundary_cross": 13
+}

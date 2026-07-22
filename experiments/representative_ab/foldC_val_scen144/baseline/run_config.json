@@ -1,0 +1,35 @@
+{
+  "git_head": "67dbaf0e8d6c665822400b3715b62583cc18a4c5",
+  "git_dirty_diff_sha256": "4f39d53c253bceefa5b76ff6752bbc70bacb2bc6d598922bce420184685c8bbc",
+  "output_ckpt_dir": "/home/autonav/projects/morai-3d-detection/experiments/representative_ab/foldC_val_scen144/baseline",
+  "run_dir": "/home/autonav/projects/morai-3d-detection/experiments/representative_ab/foldC_val_scen144/baseline",
+  "train_scenarios": [
+    "scen05",
+    "scen77"
+  ],
+  "val_scenarios": [
+    "scen144"
+  ],
+  "train_gt_version": "v2",
+  "val_gt_version": "v3",
+  "anchor_dir": "/home/autonav/projects/morai-3d-detection/experiments/representative_ab/foldC_val_scen144/anchor",
+  "anchor_full_sha256": "aef60c9d786d2ba875f79355bd2e26ea1f98cb51b3ff16461ba57b5b5819bd5f",
+  "anchor_gt_version": "v3",
+  "input_label_sha256": "7f57b361db9a26c60596d2922d21693817c3637ebd71f46e63124cc9f3067d5e",
+  "seed": 0,
+  "use_dense_depth": false,
+  "batch_size": 4,
+  "grad_accum_steps": 2,
+  "num_epochs": 2,
+  "kmeans_k": 900,
+  "recall_thr": 2.0,
+  "early_stop_patience": 999999,
+  "use_amp": false,
+  "freeze_backbone_bn": true,
+  "torch": "2.1.0+cu121",
+  "cuda": "12.1",
+  "cuda_available": true,
+  "device": "cuda",
+  "gpu_name": "NVIDIA GeForce RTX 4070 SUPER",
+  "deformable_fallback": "grid_sample (no nvcc)"
+}

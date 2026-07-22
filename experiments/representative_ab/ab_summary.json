@@ -1,0 +1,351 @@
+{
+  "folds": [
+    {
+      "fold": "foldC_val_scen144",
+      "val": "scen144",
+      "provenance_anchor_match": true,
+      "baseline_soft15": {
+        "precision": 0.23855592260500236,
+        "recall": 0.20914356640463386,
+        "f1": 0.2228835978835979,
+        "tp": 1011,
+        "fp": 3227,
+        "fn": 3823
+      },
+      "candidate_soft15": {
+        "precision": 0.21563169164882226,
+        "recall": 0.2083160943318163,
+        "f1": 0.2119107744107744,
+        "tp": 1007,
+        "fp": 3663,
+        "fn": 3827
+      },
+      "delta_soft15": {
+        "f1": -0.01097,
+        "recall": -0.00083,
+        "precision": -0.02292
+      },
+      "delta_val_loss": 0.00097,
+      "p3_recall_by_bin": {
+        "[0,1)": {
+          "base": 0.38212232096184007,
+          "cand": 0.35598536330371144,
+          "n_gt": 1913
+        },
+        "[1,3)": {
+          "base": 0.1298449612403101,
+          "cand": 0.14728682170542637,
+          "n_gt": 1032
+        },
+        "[3,6)": {
+          "base": 0.0797378481703987,
+          "cand": 0.09503003823047515,
+          "n_gt": 1831
+        },
+        "[6,8)": {
+          "base": 0.0,
+          "cand": 0.0,
+          "n_gt": 58
+        },
+        "[8,inf)": {
+          "base": null,
+          "cand": null,
+          "n_gt": 0
+        }
+      },
+      "boot_overall": {
+        "n": 4834,
+        "delta_recall": -0.00083,
+        "ci_recall": [
+          -0.00621,
+          0.00455
+        ],
+        "n_both_matched": 925,
+        "delta_cdist": 0.0485,
+        "ci_cdist": [
+          0.03718,
+          0.06011
+        ]
+      },
+      "boot_low_0_1": {
+        "n": 1913,
+        "delta_recall": -0.02614,
+        "ci_recall": [
+          -0.03659,
+          -0.01568
+        ],
+        "n_both_matched": 655,
+        "delta_cdist": 0.06274,
+        "ci_cdist": [
+          0.05254,
+          0.07287
+        ]
+      },
+      "boot_mid_1_6": {
+        "n": 2863,
+        "delta_recall": 0.01607,
+        "ci_recall": [
+          0.01083,
+          0.02166
+        ],
+        "n_both_matched": 270,
+        "delta_cdist": 0.01396,
+        "ci_cdist": [
+          -0.01316,
+          0.04511
+        ]
+      },
+      "baseline_val_frames": 1421,
+      "candidate_val_frames": 1421,
+      "ckpt_update_step": {
+        "base": 300,
+        "cand": 300
+      }
+    },
+    {
+      "fold": "foldB_val_scen77",
+      "val": "scen77",
+      "provenance_anchor_match": true,
+      "baseline_soft15": {
+        "precision": 0.14660156751895156,
+        "recall": 0.3498926709598283,
+        "f1": 0.20662803332126042,
+        "tp": 1141,
+        "fp": 6642,
+        "fn": 2120
+      },
+      "candidate_soft15": {
+        "precision": 0.1468615879828326,
+        "recall": 0.3357865685372585,
+        "f1": 0.20434823178128209,
+        "tp": 1095,
+        "fp": 6361,
+        "fn": 2166
+      },
+      "delta_soft15": {
+        "f1": -0.00228,
+        "recall": -0.01411,
+        "precision": 0.00026
+      },
+      "delta_val_loss": -0.0014,
+      "p3_recall_by_bin": {
+        "[0,1)": {
+          "base": 0.5138490926456543,
+          "cand": 0.49570200573065903,
+          "n_gt": 1047
+        },
+        "[1,3)": {
+          "base": 0.45490716180371354,
+          "cand": 0.4217506631299735,
+          "n_gt": 754
+        },
+        "[3,6)": {
+          "base": 0.18214542836573075,
+          "cand": 0.18070554355651547,
+          "n_gt": 1389
+        },
+        "[6,8)": {
+          "base": 0.11290322580645161,
+          "cand": 0.11290322580645161,
+          "n_gt": 62
+        },
+        "[8,inf)": {
+          "base": 0.0,
+          "cand": 0.0,
+          "n_gt": 9
+        }
+      },
+      "boot_overall": {
+        "n": 3261,
+        "delta_recall": -0.01411,
+        "ci_recall": [
+          -0.01993,
+          -0.00828
+        ],
+        "n_both_matched": 1071,
+        "delta_cdist": -0.00392,
+        "ci_cdist": [
+          -0.01194,
+          0.00361
+        ]
+      },
+      "boot_low_0_1": {
+        "n": 1047,
+        "delta_recall": -0.01815,
+        "ci_recall": [
+          -0.03056,
+          -0.00478
+        ],
+        "n_both_matched": 505,
+        "delta_cdist": -0.00578,
+        "ci_cdist": [
+          -0.01683,
+          0.0044
+        ]
+      },
+      "boot_mid_1_6": {
+        "n": 2143,
+        "delta_recall": -0.0126,
+        "ci_recall": [
+          -0.01867,
+          -0.00653
+        ],
+        "n_both_matched": 559,
+        "delta_cdist": -0.0023,
+        "ci_cdist": [
+          -0.01333,
+          0.00945
+        ]
+      },
+      "baseline_val_frames": 1359,
+      "candidate_val_frames": 1359,
+      "ckpt_update_step": {
+        "base": 300,
+        "cand": 300
+      }
+    },
+    {
+      "fold": "foldA_val_scen05",
+      "val": "scen05",
+      "provenance_anchor_match": true,
+      "baseline_soft15": {
+        "precision": 0.10746685275645498,
+        "recall": 0.1512770137524558,
+        "f1": 0.12566299469604242,
+        "tp": 154,
+        "fp": 1279,
+        "fn": 864
+      },
+      "candidate_soft15": {
+        "precision": 0.09815950920245399,
+        "recall": 0.14145383104125736,
+        "f1": 0.1158953722334004,
+        "tp": 144,
+        "fp": 1323,
+        "fn": 874
+      },
+      "delta_soft15": {
+        "f1": -0.00977,
+        "recall": -0.00982,
+        "precision": -0.00931
+      },
+      "delta_val_loss": 0.00571,
+      "p3_recall_by_bin": {
+        "[0,1)": {
+          "base": 0.4842105263157895,
+          "cand": 0.4,
+          "n_gt": 95
+        },
+        "[1,3)": {
+          "base": 0.5,
+          "cand": 0.5333333333333333,
+          "n_gt": 60
+        },
+        "[3,6)": {
+          "base": 0.09124537607891492,
+          "cand": 0.08631319358816276,
+          "n_gt": 811
+        },
+        "[6,8)": {
+          "base": 0.07692307692307693,
+          "cand": 0.07692307692307693,
+          "n_gt": 52
+        },
+        "[8,inf)": {
+          "base": null,
+          "cand": null,
+          "n_gt": 0
+        }
+      },
+      "boot_overall": {
+        "n": 1018,
+        "delta_recall": -0.00982,
+        "ci_recall": [
+          -0.01965,
+          -0.00098
+        ],
+        "n_both_matched": 137,
+        "delta_cdist": 0.01069,
+        "ci_cdist": [
+          -0.01644,
+          0.03874
+        ]
+      },
+      "boot_low_0_1": {
+        "n": 95,
+        "delta_recall": -0.08421,
+        "ci_recall": [
+          -0.14737,
+          -0.03158
+        ],
+        "n_both_matched": 38,
+        "delta_cdist": 0.04191,
+        "ci_cdist": [
+          0.03971,
+          0.04382
+        ]
+      },
+      "boot_mid_1_6": {
+        "n": 871,
+        "delta_recall": -0.0023,
+        "ci_recall": [
+          -0.01033,
+          0.00574
+        ],
+        "n_both_matched": 96,
+        "delta_cdist": -0.00173,
+        "ci_cdist": [
+          -0.04106,
+          0.03909
+        ]
+      },
+      "baseline_val_frames": 557,
+      "candidate_val_frames": 557,
+      "ckpt_update_step": {
+        "base": 300,
+        "cand": 300
+      }
+    }
+  ],
+  "macro": {
+    "n_folds": 3,
+    "delta_f1_soft15": [
+      -0.00767,
+      3
+    ],
+    "delta_recall_soft15": [
+      -0.00825,
+      3
+    ],
+    "delta_precision_soft15": [
+      -0.01066,
+      3
+    ],
+    "delta_val_loss": [
+      0.00176,
+      3
+    ],
+    "delta_recall_boot_overall": [
+      -0.00825,
+      3
+    ],
+    "delta_cdist_boot_overall": [
+      0.01842,
+      3
+    ],
+    "delta_cdist_boot_low_0_1": [
+      0.03296,
+      3
+    ]
+  },
+  "fold_sign_consistency": {
+    "delta_f1_signs": [
+      -1
+    ],
+    "delta_recall_boot_signs": [
+      -1
+    ]
+  },
+  "n_bootstrap": 3000,
+  "note": "candidate = v3-train, baseline = v2-train; 모두 v3 val. delta = candidate - baseline. 고정 budget 학습(수렴 아님)이므로 성능 delta 는 방향/안정성 참고용."
+}

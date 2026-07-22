@@ -1,0 +1,137 @@
+{
+  "scenes": {
+    "scen05": {
+      "labels_3d_sha": "bdaabe07c59e6a8f5263d1e38a744c91237095b0c0dc746535768134f8c156f0",
+      "labels_3d_n": 557,
+      "labels_3d_v2_sha": "f0ab7c4ee4679f52744fa488806b1fdda3a4479c3a27c3451f3df42af4d9f377",
+      "labels_3d_v2_n": 557,
+      "ego_pose_sha": "d48daed1094150a645f0ac9f98c6d65d81c10e43a3b40462dff7d8af90dcf0c4",
+      "ego_pose_n": 557,
+      "lidar_sha": "865a92e71c95785647ac338a2708d28496d379383d590562abb43592aade4aaa",
+      "lidar_n": 557,
+      "sync_log_sha": "a250221e4966ace51980a0019bd5e71c24a093dd4e6be0abfd7e8c2142e2c359",
+      "v2_frames": 557,
+      "v2_boxes": 1192,
+      "v3_frames": 557,
+      "v3_boxes": 1192,
+      "sync_saves": 557,
+      "epoch_ids": {
+        "0": 557
+      },
+      "n_epochs": 1,
+      "existing_timing_report": {
+        "n_boxes": 1192,
+        "p50_m": 0.16819131583086078,
+        "p95_m": 0.4210653625785906,
+        "max_m": 0.7666816562926134,
+        "mean_m": 0.18822979801196496,
+        "frac_gt_0p2m": 0.39177852348993286,
+        "n_correction_valid": 1192,
+        "n_correction_invalid": 0,
+        "n_frames_no_sync": 0,
+        "n_vel_motion_tracks": 0,
+        "ego_interp_conflicts": 0,
+        "max_interp_gap_s": 0.20099997520446777,
+        "interp_method_counts": {
+          "extrap_low": 1,
+          "interp": 556
+        },
+        "frame_valid_counts": {
+          "valid": 557,
+          "invalid": 0
+        }
+      }
+    },
+    "scen77": {
+      "labels_3d_sha": "defc9b1e26760bad407932e0ada2d0dbc699e0c92dfcf551378895db891aea78",
+      "labels_3d_n": 1359,
+      "labels_3d_v2_sha": "63ba08dceef5d22cc3cb33cd05efa383d2c1f399fecd5a8fc559ecc15fa38ae7",
+      "labels_3d_v2_n": 1359,
+      "ego_pose_sha": "b4e57ef23f6a0a9cc4c01249a068c3a90fc665273f74c3edc843bbe3f3cec4b9",
+      "ego_pose_n": 1359,
+      "lidar_sha": "ef0391e75ce8c3e09c97ae954a9045bbdb0631f0916152a0ce1631bb88b2b933",
+      "lidar_n": 1359,
+      "sync_log_sha": "9bda383d3cd5949e5dcae352d59a5d75e1302e46f5c4d00fe0b26b93c9b23274",
+      "v2_frames": 1359,
+      "v2_boxes": 3790,
+      "v3_frames": 1359,
+      "v3_boxes": 3790,
+      "sync_saves": 1359,
+      "epoch_ids": {
+        "0": 1359
+      },
+      "n_epochs": 1,
+      "existing_timing_report": {
+        "n_boxes": 3790,
+        "p50_m": 0.0694256697867426,
+        "p95_m": 0.2918615715229218,
+        "max_m": 0.908804163167824,
+        "mean_m": 0.0971163384276887,
+        "frac_gt_0p2m": 0.13271767810026386,
+        "n_correction_valid": 3790,
+        "n_correction_invalid": 0,
+        "n_frames_no_sync": 0,
+        "n_vel_motion_tracks": 0,
+        "ego_interp_conflicts": 0,
+        "max_interp_gap_s": 0.23600006103515625,
+        "interp_method_counts": {
+          "extrap_low": 1,
+          "interp": 1358
+        },
+        "frame_valid_counts": {
+          "valid": 1359,
+          "invalid": 0
+        }
+      }
+    },
+    "scen144": {
+      "labels_3d_sha": "f75d252c72b1eb59c717566ce9d25fca035a67163225b82be954ed9590e9a868",
+      "labels_3d_n": 1421,
+      "labels_3d_v2_sha": "3640a7fc3a1d7f8bf17ffffa62ef36db28e2d1224d7f2de7fca9ec750d741b49",
+      "labels_3d_v2_n": 1421,
+      "ego_pose_sha": "ba1651f43bc90bd8a467eded66d43319de4a9a585ffc0734d304d0a6d3aa8df2",
+      "ego_pose_n": 1421,
+      "lidar_sha": "f1428f255ffebbd30d602f1d7ec292469fefaf3454d45175056c501b532a985d",
+      "lidar_n": 1421,
+      "sync_log_sha": "a83b5ce819de2d0712d8e239083a628acb5a36a9b47c195b964784e9558ee1ec",
+      "v2_frames": 1421,
+      "v2_boxes": 5534,
+      "v3_frames": 1421,
+      "v3_boxes": 5534,
+      "sync_saves": 1421,
+      "epoch_ids": {
+        "0": 1421
+      },
+      "n_epochs": 1,
+      "existing_timing_report": {
+        "n_boxes": 5534,
+        "p50_m": 0.06273415747333952,
+        "p95_m": 0.2772920736600728,
+        "max_m": 0.7980630780321022,
+        "mean_m": 0.09197413860606202,
+        "frac_gt_0p2m": 0.13353812793639322,
+        "n_correction_valid": 5534,
+        "n_correction_invalid": 0,
+        "n_frames_no_sync": 0,
+        "n_vel_motion_tracks": 0,
+        "ego_interp_conflicts": 0,
+        "max_interp_gap_s": 0.2650001049041748,
+        "interp_method_counts": {
+          "extrap_low": 1,
+          "interp": 1420
+        },
+        "frame_valid_counts": {
+          "valid": 1421,
+          "invalid": 0
+        }
+      }
+    }
+  },
+  "raw_input_hashes": {},
+  "totals": {
+    "v2_frames": 3337,
+    "v2_boxes": 10516,
+    "v3_frames": 3337,
+    "v3_boxes": 10516
+  }
+}
