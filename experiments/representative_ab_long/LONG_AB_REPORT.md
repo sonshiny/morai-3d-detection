@@ -1,9 +1,14 @@
 # 장기(수렴) 대표 3-fold × 2-seed A/B — budget 동결 & 실행 계획
 
 > ## ⛔ 상태: 장기 A/B = **NOT STARTED (미착수)**
+> - 이 실험은 **v2/v3 검출 성능 비교용 선택 실험**이다. v3 label correctness의 선행조건이나
+>   150-scene v3 학습의 blocker가 아니다. label 수식·구현·시간 일관성 직접 판정은
+>   `experiments/v3_correctness/V3_CORRECTNESS.md`를 따른다.
+> - 아래 4070 SUPER budget은 `USE_TEMPORAL_MEMORY=0` 대표 A/B 경로의 과거 산정치다.
+>   150-scene temporal production 시간으로 재사용하지 않는다.
 > - **TECHNICAL_GO(infra) = PASS** — runner/anchor/init/collision-guard/env plumbing 검증 완료.
 > - **V3_PERFORMANCE_GO = INCONCLUSIVE (변동 없음)** — 장기 run 이 아직 없어 파일럿 판정을 대체하지 못함.
-> - **PRODUCTION_150_GO = NO-GO** · **P1 = NO-GO** (불변).
+> - **P1 = NO-GO**. 150-scene production은 별도 전체-data/temporal preflight gate를 따른다.
 > - **미착수 사유**: 아래에서 **실측**한 production 기본 schedule(100 epoch, epoch마다 full validation)의
 >   12-run 예상 비용이 **≈ 503 GPU-시간 ≈ 20.9 GPU-일**(단일 RTX 4070 SUPER)이다. 이는 단일 세션에서
 >   완주·평가가 불가능하고, GPU 를 여러 날 점유하는 되돌리기 어려운 커밋이다. 규정(Phase 2.4)에 따라
