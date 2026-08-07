@@ -1,0 +1,33 @@
+[RUN] python /workspace/morai-3d-detection/evaluate_ap.py --run-dir runs/p2_scratch_parity_20260801_30ep --ckpt checkpoint_epoch25.pth --tag ep25_sub3k --max-frames 3000 --no-diag --num-workers 4
+[eval] ckpt=runs/p2_scratch_parity_20260801_30ep/checkpoint_epoch25.pth
+[eval] device=cuda, roi_max=50.0m, variants=('final_nonms', 'raw_nonms', 'final_pre_nonms', 'final_nms'), diag=False
+[MoraiTemporalDataset:val] gt=v3 (labels_3d_v3+scene_info_v3.json) | 시나리오 ['scen02', 'scen07', 'scen08', 'scen09', 'scen21', 'scen23', 'scen24', 'scen27', 'scen29', 'scen36', 'scen44', 'scen51', 'scen55', 'scen56', 'scen57', 'scen58', 'scen60', 'scen63', 'scen71', 'scen72', 'scen90', 'scen98', 'scen104', 'scen108', 'scen109', 'scen115', 'scen130', 'scen140', 'scen145', 'scen149'] | 26,503 프레임 | chunk=150
+[StreamingGroupSampler] B=4 shuffle=False drop_tail=False | 시퀀스 191개 프레임 26,503 | 트랙길이 [6627, 6628, 6628, 6620] | 배치 6628
+[eval] val frames=26,503, batches=6,628
+/opt/miniconda3/envs/morai-train/lib/python3.11/site-packages/torch/utils/cpp_extension.py:2356: UserWarning: TORCH_CUDA_ARCH_LIST is not set, all archs for visible cards are included for compilation. 
+If this is not desired, please set os.environ['TORCH_CUDA_ARCH_LIST'].
+  warnings.warn(
+[eval] 2,000 frames, 107s (18.7 fps)
+[eval] forward done: 3,000 frames in 159s
+[eval] saved → runs/p2_scratch_parity_20260801_30ep/ap_eval/ep25_sub3k.json
+[eval] preds dump → runs/p2_scratch_parity_20260801_30ep/ap_eval/ep25_sub3k_preds.npz
+
+══════════ AP (nuScenes-style front-ROI) ══════════
+[final_nonms] mAP=0.7386
+  vehicle    AP@0.5=0.5340  AP@1.0=0.7746  AP@2.0=0.8568  AP@4.0=0.8775
+  pedestrian AP@0.5=0.4487  AP@1.0=0.6851  AP@2.0=0.8368  AP@4.0=0.8950
+[raw_nonms] mAP=0.7232
+  vehicle    AP@0.5=0.4999  AP@1.0=0.7684  AP@2.0=0.8629  AP@4.0=0.8857
+  pedestrian AP@0.5=0.3849  AP@1.0=0.6516  AP@2.0=0.8337  AP@4.0=0.8983
+[final_pre_nonms] mAP=0.7320
+  vehicle    AP@0.5=0.5240  AP@1.0=0.7619  AP@2.0=0.8468  AP@4.0=0.8653
+  pedestrian AP@0.5=0.4480  AP@1.0=0.6831  AP@2.0=0.8353  AP@4.0=0.8919
+[final_nms] mAP=0.7319
+  vehicle    AP@0.5=0.5158  AP@1.0=0.7530  AP@2.0=0.8486  AP@4.0=0.8738
+  pedestrian AP@0.5=0.4425  AP@1.0=0.6799  AP@2.0=0.8408  AP@4.0=0.9011
+
+══════════ TP errors @2m (final_nonms) ══════════
+  vehicle    ate_xy=0.475  ate_3d=0.478  ase=0.134  aoe_rad=0.051  ave=0.850  n_tp=5425  ave_coverage=1.000
+  pedestrian ate_xy=0.550  ate_3d=0.556  ase=0.194  aoe_rad=0.685  ave=0.055  n_tp=2704  ave_coverage=0.942
+
+[eval] total 184s

@@ -8,9 +8,13 @@ scratch_full_occlusion_rule_verify.py 가 산출한 검증된 트랙 다수결 �
 저장한다. 학습 때마다 YOLO 를 돌리지 않기 위한 사전계산이다.
 
 산출:  dataset/<scen>/camera_occlusion/<stem>.npy
-  shape (M, 2) float32 = [track_id, track_undetected_flag(0/1)]
+  shape (M, 3) float32 = [track_id, track_undetected_flag(0/1), frame_detected_flag(0/1)]
+    track_undetected : 트랙 다수결 미검출(시나리오 내 상수) — rule_eval.csv track_occluded
+    frame_detected   : 이 프레임에 YOLO 가 이 박스를 검출했는지 — rule_eval.csv frame_match
   (occlusion/*.npy 와 동일 패턴; loader 는 track_id 로 매칭)
-트랙 단위 판정이므로 같은 track_id 는 시나리오 내 모든 프레임에서 동일 flag.
+트랙 다수결(track_undetected)은 시나리오 내 상수지만 frame_detected 는 프레임마다 다르다.
+로더의 완전가림 제거는 (npts==0 AND track_undetected AND NOT frame_detected)로,
+그 프레임에 카메라로 보이는 박스(frame_detected=1)는 유지해 오제거를 막는다.
 
 rule_eval.csv 가 없으면 해당 scen 은 건너뛰고 경고한다
 (먼저 scratch_full_occlusion_rule_verify.py --scens <scen> 실행 필요).
@@ -34,15 +38,16 @@ def process_scen(scen_dir):
     if not os.path.isfile(csv_path):
         print(f"  [SKIP] rule_eval.csv 없음: {csv_path}")
         return 0, 0
-    # stem -> {tid: flag}
+    # stem -> {tid: (track_occluded_flag, frame_detected_flag)}
     per_stem = defaultdict(dict)
     track_flag = {}
     with open(csv_path, newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
             tid = int(row["tid"])
-            flag = row["track_occluded"] == "True"
-            per_stem[row["stem"]][tid] = flag
-            # 트랙 단위 일관성 검사
+            flag = row["track_occluded"] == "True"      # 트랙 다수결(트랙당 상수)
+            fdet = row["frame_match"] == "True"          # 이 프레임 YOLO 검출(프레임 단위)
+            per_stem[row["stem"]][tid] = (flag, fdet)
+            # 트랙 단위 일관성 검사 (track_occluded 는 트랙당 상수여야 함)
             if tid in track_flag and track_flag[tid] != flag:
                 raise ValueError(f"track {tid} flag 불일치: {csv_path}")
             track_flag[tid] = flag
@@ -50,8 +55,10 @@ def process_scen(scen_dir):
     out_dir = os.path.join(scen_dir, "camera_occlusion")
     os.makedirs(out_dir, exist_ok=True)
     for stem, tids in per_stem.items():
-        arr = np.array([[tid, 1.0 if fl else 0.0] for tid, fl in sorted(tids.items())],
-                       dtype=np.float32).reshape(-1, 2)
+        arr = np.array(
+            [[tid, 1.0 if tf else 0.0, 1.0 if fd else 0.0]
+             for tid, (tf, fd) in sorted(tids.items())],
+            dtype=np.float32).reshape(-1, 3)
         np.save(os.path.join(out_dir, stem + ".npy"), arr)
     n_occ = sum(1 for v in track_flag.values() if v)
     print(f"  {os.path.basename(scen_dir)}: {len(per_stem)}프레임, 트랙 {len(track_flag)}개 "

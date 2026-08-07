@@ -1,0 +1,64 @@
+{
+  "source": "/workspace/morai-3d-detection/runs/p2_scratch_parity_20260801_30ep/ap_eval/ep25_full_preds.npz",
+  "split": "held-out validation (used as test; repository has no test split)",
+  "score_mode": "final",
+  "score_threshold": 0.15,
+  "match_distance_m": 2.0,
+  "samples": [
+    {
+      "frame_no": 99,
+      "stem": "scen08/live_000174",
+      "gt": 4,
+      "pred": 4,
+      "tp": 4,
+      "fp": 0,
+      "fn": 0,
+      "camera": "/workspace/morai-3d-detection/runs/p2_scratch_parity_20260801_30ep/qualitative/ep25_full/scen08__live_000174__camera.png",
+      "bev": "/workspace/morai-3d-detection/runs/p2_scratch_parity_20260801_30ep/qualitative/ep25_full/scen08__live_000174__bev.png"
+    },
+    {
+      "frame_no": 1479,
+      "stem": "scen09/live_000219",
+      "gt": 2,
+      "pred": 3,
+      "tp": 1,
+      "fp": 2,
+      "fn": 1,
+      "camera": "/workspace/morai-3d-detection/runs/p2_scratch_parity_20260801_30ep/qualitative/ep25_full/scen09__live_000219__camera.png",
+      "bev": "/workspace/morai-3d-detection/runs/p2_scratch_parity_20260801_30ep/qualitative/ep25_full/scen09__live_000219__bev.png"
+    },
+    {
+      "frame_no": 6987,
+      "stem": "scen51/live_000096",
+      "gt": 2,
+      "pred": 5,
+      "tp": 2,
+      "fp": 3,
+      "fn": 0,
+      "camera": "/workspace/morai-3d-detection/runs/p2_scratch_parity_20260801_30ep/qualitative/ep25_full/scen51__live_000096__camera.png",
+      "bev": "/workspace/morai-3d-detection/runs/p2_scratch_parity_20260801_30ep/qualitative/ep25_full/scen51__live_000096__bev.png"
+    },
+    {
+      "frame_no": 14899,
+      "stem": "scen72/live_000124",
+      "gt": 3,
+      "pred": 2,
+      "tp": 2,
+      "fp": 0,
+      "fn": 1,
+      "camera": "/workspace/morai-3d-detection/runs/p2_scratch_parity_20260801_30ep/qualitative/ep25_full/scen72__live_000124__camera.png",
+      "bev": "/workspace/morai-3d-detection/runs/p2_scratch_parity_20260801_30ep/qualitative/ep25_full/scen72__live_000124__bev.png"
+    },
+    {
+      "frame_no": 22923,
+      "stem": "scen149/live_000180",
+      "gt": 3,
+      "pred": 2,
+      "tp": 2,
+      "fp": 0,
+      "fn": 1,
+      "camera": "/workspace/morai-3d-detection/runs/p2_scratch_parity_20260801_30ep/qualitative/ep25_full/scen149__live_000180__camera.png",
+      "bev": "/workspace/morai-3d-detection/runs/p2_scratch_parity_20260801_30ep/qualitative/ep25_full/scen149__live_000180__bev.png"
+    }
+  ]
+}

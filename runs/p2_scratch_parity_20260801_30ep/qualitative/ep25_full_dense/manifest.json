@@ -1,0 +1,20 @@
+{
+  "source": "/workspace/morai-3d-detection/runs/p2_scratch_parity_20260801_30ep/ap_eval/ep25_full_preds.npz",
+  "split": "held-out validation (used as test; repository has no test split)",
+  "score_mode": "final",
+  "score_threshold": 0.15,
+  "match_distance_m": 2.0,
+  "samples": [
+    {
+      "frame_no": 16072,
+      "stem": "scen90/live_000268",
+      "gt": 7,
+      "pred": 8,
+      "tp": 6,
+      "fp": 2,
+      "fn": 1,
+      "camera": "/workspace/morai-3d-detection/runs/p2_scratch_parity_20260801_30ep/qualitative/ep25_full_dense/scen90__live_000268__camera.png",
+      "bev": "/workspace/morai-3d-detection/runs/p2_scratch_parity_20260801_30ep/qualitative/ep25_full_dense/scen90__live_000268__bev.png"
+    }
+  ]
+}

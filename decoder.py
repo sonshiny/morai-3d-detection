@@ -1,4 +1,5 @@
 import math  # prior bias 계산(-log((1-π)/π))에 필요
+import os
 import torch
 import torch.nn as nn
 
@@ -43,8 +44,11 @@ class FFNDecoder(nn.Module):
 
         # RetinaNet(Lin et al.) 스타일 prior bias 초기화: sigmoid focal loss에서
         # 초기 foreground 확률을 prior_prob로 낮춰 cls loss 폭발 방지
-        prior_prob = 0.1
-        bias_value = -math.log((1.0 - prior_prob) / prior_prob)  # ≈ -2.197
+        # 기본 0.1 = 기존 run 재현(하위호환). 공식 SparseDrive/mmdet focal init 은 0.01 —
+        # parity scratch 학습(train_temporal_scratch_parity.sh)은 env 로 0.01 을 지정한다.
+        # INIT_WEIGHTS/RESUME 경로에서는 checkpoint 가 bias 를 덮어쓰므로 이 값은 무의미.
+        prior_prob = float(os.environ.get('CLS_PRIOR_PROB', '0.1'))
+        bias_value = -math.log((1.0 - prior_prob) / prior_prob)  # 0.1→≈-2.197, 0.01→≈-4.595
         # cls_branch의 마지막 nn.Linear를 인덱스 하드코딩 없이 동적으로 탐색
         last_cls_linear = [m for m in self.cls_branch if isinstance(m, nn.Linear)][-1]
         nn.init.constant_(last_cls_linear.bias, bias_value)        # 모든 클래스 bias를 낮게 시작

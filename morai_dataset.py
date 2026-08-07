@@ -252,6 +252,10 @@ class MoraiDataset(Dataset):
         selected = [os.path.join(dataset_root, name) for name in selected_names]
 
         self.items = []
+        # 카메라 FOV 필터(box_visible_in_any_camera). 수집(morai_3d_live)에서 동일 필터를
+        # 이미 적용하므로 학습 재적용은 사실상 중복(실측 0개 제거). env FILTER_VISIBLE 로 제어.
+        if "FILTER_VISIBLE" in os.environ:
+            filter_visible = os.environ.get("FILTER_VISIBLE") not in ("0", "", "false", "False")
         self.filter_visible = filter_visible
         for scen_dir in selected:
             lbl_dir = os.path.join(scen_dir, 'labels_3d')
@@ -437,6 +441,10 @@ class MoraiTemporalDataset(Dataset):
         self.scene_info_name = "scene_info.json" if gt_version == "v2" else "scene_info_v3.json"
         self.sequence_length = int(sequence_length)
         self.depth_strides = tuple(int(s) for s in depth_strides)
+        # 카메라 FOV 필터(box_visible_in_any_camera). 수집(morai_3d_live)에서 동일 필터를
+        # 이미 적용하므로 학습 재적용은 사실상 중복(실측 0개 제거). env FILTER_VISIBLE 로 제어.
+        if "FILTER_VISIBLE" in os.environ:
+            filter_visible = os.environ.get("FILTER_VISIBLE") not in ("0", "", "false", "False")
         self.filter_visible = bool(filter_visible)
         self.load_depth = bool(load_depth)
         # [legacy] occlusion(num_lidar_pts) 라이다 단독 필터 임계값.
@@ -446,13 +454,13 @@ class MoraiTemporalDataset(Dataset):
             occlusion_min_pts = int(os.environ.get("OCCLUSION_MIN_PTS", "0"))
         self.occlusion_min_pts = int(occlusion_min_pts)
 
-        # GT 제거 규칙 (scen02~06 검증 완료: 오제거 0, 놓침 1.4%):
-        #   제거 <=> (radial_dist > 50m)                          … 인지범위 밖
-        #         or (npts == 0 AND YOLO 트랙 다수결 미검출)      … 완전가림
+        # GT 제거 규칙 (프레임단위 강화 — 트랙 다수결 단독의 보행자 오제거 교정):
+        #   제거 <=> (radial_dist > 50m)                                            … 인지범위 밖
+        #         or (npts==0 AND YOLO 트랙 다수결 미검출 AND 이 프레임 YOLO 미검출)  … 완전가림
         # sidecar:
         #   dataset/<scen>/occlusion/<stem>.npy          [tid, npts, dist]
-        #   dataset/<scen>/camera_occlusion/<stem>.npy   [tid, track_undetected_flag]
-        #     (generate_camera_occlusion_sidecar.py — YOLO 트랙 다수결 사전계산)
+        #   dataset/<scen>/camera_occlusion/<stem>.npy   [tid, track_undetected, frame_detected]
+        #     (generate_camera_occlusion_sidecar.py — 트랙 다수결 + 프레임 검출 사전계산)
         # 안전 규약: sidecar 없음/track 미매칭은 '미상' → 절대 제거하지 않는다.
         # env GT_REMOVAL_RULE=0 으로 전체 비활성(기존 무필터 동작).
         self.gt_removal_rule = os.environ.get("GT_REMOVAL_RULE", "1") not in ("0", "", "false", "False")
@@ -620,15 +628,21 @@ class MoraiTemporalDataset(Dataset):
         return {int(r[0]): int(r[1]) for r in arr}
 
     def _load_camera_occlusion(self, scen_dir, stem):
-        """camera_occlusion sidecar → {track_id: yolo_track_undetected(bool)}. 없으면 빈 dict.
-        generate_camera_occlusion_sidecar.py 산출. 트랙 단위라 시나리오 내 동일 flag."""
+        """camera_occlusion sidecar → {track_id: (track_undetected, frame_detected)}. 없으면 빈 dict.
+        generate_camera_occlusion_sidecar.py 산출.
+          track_undetected : YOLO 트랙 다수결 미검출(시나리오 내 상수)
+          frame_detected   : 이 프레임에 YOLO 가 이 박스를 검출했는지(프레임 단위)
+        (M,2) 구버전 sidecar 는 frame 정보가 없으므로 frame_detected=False 로 본다."""
         path = os.path.join(scen_dir, "camera_occlusion", f"{stem}.npy")
         if not os.path.isfile(path):
             return {}
         arr = np.load(path)
         if arr.ndim != 2 or arr.shape[0] == 0:
             return {}
-        return {int(r[0]): bool(r[1] >= 0.5) for r in arr}
+        has_frame = arr.shape[1] >= 3
+        return {int(r[0]): (bool(r[1] >= 0.5),
+                            bool(r[2] >= 0.5) if has_frame else False)
+                for r in arr}
 
     def _load_visibility(self, scen_dir, stem):
         """visibility sidecar → {track_id: best_visible_ratio}. 없으면 빈 dict."""
@@ -660,18 +674,23 @@ class MoraiTemporalDataset(Dataset):
                         f"[ERROR] correction_valid=0인 v3 GT를 학습할 수 없습니다: "
                         f"{csv_path}, track_id={row.get('track_id')}")
                 box_center = _label_v2_to_box(row, z_mode="center")
-                # GT 제거 규칙 (2026-07-18 확정, scen02~06 검증):
+                # GT 제거 규칙 (프레임단위 강화):
                 #   1) 인지범위: radial_dist > 50m → 항상 제거
-                #   2) 완전가림: (npts == 0) AND (YOLO 트랙 다수결 미검출) → 제거
-                # 부분가림은 전부 유지(가중치 없음). sidecar 미상은 제거하지 않음.
+                #   2) 완전가림: (npts==0) AND (트랙 다수결 미검출) AND (이 프레임 YOLO 미검출) → 제거
+                # 트랙 다수결만 쓰면 원거리 보행자가 그 프레임에 카메라로 보이는데도
+                # 통째로 삭제되는 오제거가 발생(scen02~06 실측 확인). 프레임 단위 YOLO
+                # 검출(_seen)을 AND 로 추가해 카메라에 보이는 프레임은 유지한다.
+                # 부분가림/보이는 프레임은 유지. sidecar 미상은 제거하지 않음.
                 if self.gt_removal_rule:
                     _tid = int(float(row["track_id"]))
                     _rd = float(np.hypot(float(row["x"]), float(row["y"])))
                     if _rd > self.gt_removal_range_m:
                         continue
                     _npts = occ.get(_tid, -1) if occ else -1
-                    _undet = cam_occ.get(_tid, False) if cam_occ else False
-                    if _npts == 0 and _undet:
+                    _cam = cam_occ.get(_tid) if cam_occ else None
+                    _undet = _cam[0] if _cam else False   # 트랙 다수결 미검출
+                    _seen = _cam[1] if _cam else False    # 이 프레임 YOLO 검출
+                    if _npts == 0 and _undet and not _seen:
                         continue
                 # [백업 2026-07-18] 기존 라이다 단독 필터(OCCLUSION_MIN_PTS) — 위 규칙으로 교체.
                 # 되돌리려면 GT_REMOVAL_RULE=0 설정 후 아래 주석 해제 + 상단 occ 로드 조건을
@@ -900,8 +919,11 @@ class StreamingGroupSampler(Sampler):
       epoch 과 무관하게 결정적 → __len__ 안정.
     - step s 마다 각 트랙의 s번째 프레임을 모아 배치를 만든다. 배치의 b번째 원소는 항상
       트랙 b 에서 나오므로 batch position ↔ instance bank slot 매핑이 안정적이다.
-    - 한 트랙 안에서 시퀀스가 끝나고 다음 시퀀스가 시작되면, 그 프레임은 청크의 frame0
-      (is_seq_start=1) 이므로 슬롯 교체 시 bank reset 이 자연스럽게 트리거된다.
+    - 한 트랙 안에서 시퀀스(청크)가 바뀔 때 instance bank reset 은 is_seq_start 가 아니라
+      모델의 dt/context 검사로 처리된다(train.py _get_temporal_memory): 다음 프레임이 다른
+      시나리오(context 불일치)거나 시간 갭(dt)이 max_time_interval 을 넘으면 자동 리셋되고,
+      같은 시나리오의 연속 청크(dt~0.1s)는 전파가 유지된다(150-프레임 분할은 인위적 경계이므로
+      contiguous 하면 전파가 맞다). is_seq_start 는 dataset 산출물이지만 현재 모델 호출엔 안 쓴다.
     - shuffle=True(train): epoch 마다 "트랙 안에서 시퀀스 그룹의 순서"만 섞는다
       (프레임 내부 순서는 유지, 트랙 길이도 유지). shuffle=False(val): 완전 결정적.
 

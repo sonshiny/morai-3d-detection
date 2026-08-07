@@ -1,0 +1,91 @@
+{
+  "meta": {
+    "source_predictions": "/workspace/morai-3d-detection/runs/p2_scratch_parity_20260801_30ep/ap_eval/ep25_full_preds.npz",
+    "scenario": "scen08",
+    "segment": 0,
+    "start_stem": "live_000170",
+    "end_stem": "live_000269",
+    "frames": 100,
+    "raw_threshold": 0.05,
+    "rotated_nms": true,
+    "match_distance_m": 2.0,
+    "note": "GT track_id only joins GT rows; prediction tracking is not evaluated.",
+    "vz_note": "predicted vz is omitted because current loss supervises only channels 0:10."
+  },
+  "classes": {
+    "vehicle": {
+      "gt_samples": 200,
+      "matched_samples": 200,
+      "match_rate": 1.0,
+      "position_mae_ego_m": {
+        "x": 0.20254649162292482,
+        "y": 0.04695250946329907,
+        "z": 0.035724447667598726
+      },
+      "center_error_xy_m": {
+        "mean": 0.21732962438199,
+        "p90": 0.42119922052003833
+      },
+      "center_error_3d_m": {
+        "mean": 0.22390513975973242,
+        "p90": 0.4216943892204189
+      },
+      "yaw_error_deg": {
+        "mean": 1.0355585453857608,
+        "p90": 2.072998038440495
+      },
+      "velocity_valid_matched": 200,
+      "velocity_error_mps": {
+        "vx_mae": 0.4134598112106323,
+        "vy_mae": 0.09853525955724762,
+        "vector_mean": 0.43905160868366605,
+        "vector_p90": 0.8121365451928276,
+        "speed_mae": 0.40848484256379064
+      },
+      "temporal_delta_error": {
+        "consecutive_pairs": 197,
+        "center_step_mean_m": 0.11778851563671594,
+        "center_step_p90_m": 0.2851428044996843,
+        "yaw_step_mean_deg": 0.7443184166958247,
+        "velocity_step_mean_mps": 0.11621705030571726
+      }
+    },
+    "pedestrian": {
+      "gt_samples": 323,
+      "matched_samples": 266,
+      "match_rate": 0.8235294117647058,
+      "position_mae_ego_m": {
+        "x": 0.46124869719483796,
+        "y": 0.3418829566554019,
+        "z": 0.029365857965067813
+      },
+      "center_error_xy_m": {
+        "mean": 0.5979140462917951,
+        "p90": 1.7399851262709336
+      },
+      "center_error_3d_m": {
+        "mean": 0.6009510344538324,
+        "p90": 1.7401229009969579
+      },
+      "yaw_error_deg": {
+        "mean": 42.48979427712112,
+        "p90": 93.90947665751732
+      },
+      "velocity_valid_matched": 266,
+      "velocity_error_mps": {
+        "vx_mae": 0.018369513639197265,
+        "vy_mae": 0.011981076515508164,
+        "vector_mean": 0.023988860324413476,
+        "vector_p90": 0.049914034864915954,
+        "speed_mae": 0.023988860324413476
+      },
+      "temporal_delta_error": {
+        "consecutive_pairs": 256,
+        "center_step_mean_m": 0.24278284580830786,
+        "center_step_p90_m": 0.4594534587442677,
+        "yaw_step_mean_deg": 8.417886144010243,
+        "velocity_step_mean_mps": 0.01601478126112671
+      }
+    }
+  }
+}

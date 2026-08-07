@@ -254,6 +254,11 @@ def _reassign_tracks(frames):
     infos.sort(key=lambda a: a["start_fi"])
     n = len(infos)
     parent = list(range(n))
+    # 각 세그먼트가 점유한 frame 집합을 컴포넌트(root) 단위로 관리.
+    # 같은 frame 을 점유하는 두 세그먼트는 '동시에 존재하는 서로 다른 물리 객체'이므로
+    # 절대 같은 track 으로 병합하면 안 된다(track_id 충돌 방지). 병합 실행 직전에만
+    # 겹침을 검사하므로 후계자 선택 로직·충돌 없던 시나리오의 track_id 는 그대로다.
+    comp_frames = {k: set(e[0] for e in infos[k]["seg"]) for k in range(n)}
 
     def find(a):
         while parent[a] != a:
@@ -262,7 +267,12 @@ def _reassign_tracks(frames):
         return a
 
     def union(a, b):
-        parent[find(a)] = find(b)
+        ra, rb = find(a), find(b)
+        if ra == rb:
+            return
+        parent[ra] = rb
+        comp_frames[rb] |= comp_frames[ra]
+        del comp_frames[ra]
 
     for i in range(n):
         ei_fi, ei_t, ei_o = infos[i]["end"]
@@ -290,7 +300,11 @@ def _reassign_tracks(frames):
                 if best is None or dist < best[1]:
                     best = (j, dist)
         if best is not None:
-            union(i, best[0])
+            # 겹침 가드: 두 컴포넌트가 같은 frame 을 공유하면(동시 존재) 병합하지 않는다.
+            # 같은 컴포넌트면 원본과 동일하게 no-op, 서로소면 정상 병합.
+            ri, rj = find(i), find(best[0])
+            if ri == rj or comp_frames[ri].isdisjoint(comp_frames[rj]):
+                union(i, best[0])
 
     # 4) track_id 부여
     root_to_tid = {}

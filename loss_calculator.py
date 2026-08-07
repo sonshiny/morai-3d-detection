@@ -84,6 +84,11 @@ class HungarianMatcher(nn.Module):
         cost_bbox = torch.cdist(pred_norm, gt_norm, p=1)
 
         C = self.cost_class * cost_class + self.cost_bbox * cost_bbox
+        # NaN/Inf 방어: 예측 발산으로 cost 에 비유한값이 생기면 linear_sum_assignment 가
+        # 'matrix contains invalid numeric entries' 로 죽는다. 유한값으로 치환해 crash 만 막고,
+        # 실제 그 배치의 스킵은 상위 train loop 의 loss 유한성 검사(torch.isfinite)가 담당한다.
+        if not torch.isfinite(C).all():
+            C = torch.nan_to_num(C, nan=1e6, posinf=1e6, neginf=-1e6)
         C = C.detach().cpu().numpy()
 
         pred_indices, gt_indices = linear_sum_assignment(C)
@@ -309,6 +314,178 @@ class CustomLoss(nn.Module):
 
         total_loss = 2.0 * loss_class + 2.0 * loss_bbox + self.quality_weight * loss_quality
         return total_loss, loss_class, loss_bbox, loss_quality
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Phase 2: 공식 SparseDrive Stage-1 parity loss 계약
+#
+# 합의 계약 (2026-07 Phase 1/2 분석):
+#   matching      : 전체 900 query ↔ GT
+#                   cls cost = focal pos-neg × 2.0 (공식 target.py._cls_cost)
+#                   box cost = |Δ|·[2,2,2,.5,.5,.5,0,0,0,0]×0.25 (metric 단위,
+#                              yaw·velocity 명시적 제외, BOX_SCALE 미사용)
+#   num_pos       : matched 수 — cls threshold 적용 **전** (공식 head 435행)
+#   cls loss      : 모든 query, sigmoid focal α.25 γ2 × 2.0, ÷ batch num_pos
+#   reg/qual mask : matched ∧ sigmoid(cls).max > 0.05 (공식 cls_threshold_to_reg)
+#   reg loss      : L1·[2,2,2,1,1,1,1,1,1,1]×0.25, ÷ batch num_pos, vz 제외,
+#                   velocity_valid 는 vx/vy 채널에만 적용 (의도적 MORAI 이탈)
+#   cns loss      : BCE(cns_logit, exp(−‖Δxyz‖₂)) — detach 없음(공식과 동일;
+#                   gradient 가 target 경유로 box 에도 흐름), ÷ batch num_pos
+#   yns loss      : GaussianFocal(sigmoid(yns), cos_sim>0), ÷ batch num_pos
+#   decoder 결합  : 6개 동일 가중 합산 (batch num_pos 정규화는 train.py 집계 담당)
+#
+# 이 클래스들은 frame 단위 **비정규화 합**을 반환한다. 프레임별 GT 수로 나누면
+# per-object gradient 가 GT 밀도에 반비례하는 왜곡이 생기므로(기존 계약의 문제),
+# 정규화는 반드시 배치 전체 num_pos 로 한 번만 수행해야 한다
+# → train.py compute_parity_detection_loss 참조.
+# ═══════════════════════════════════════════════════════════════════
+
+PARITY_MATCH_WEIGHTS = [2.0, 2.0, 2.0, 0.5, 0.5, 0.5, 0.0, 0.0, 0.0, 0.0]  # ×0.25
+PARITY_REG_WEIGHTS = [2.0, 2.0, 2.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]    # ×0.25
+PARITY_CLS_WEIGHT = 2.0
+PARITY_BOX_WEIGHT = 0.25
+PARITY_CLS_THRESHOLD_TO_REG = 0.05
+
+
+class ParityHungarianMatcher(nn.Module):
+    """공식 SparseBox3DTarget.sample 의 cost 계약 재현."""
+
+    def __init__(self, alpha=0.25, gamma=2.0, eps=1e-12):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.eps = eps
+        self.register_buffer(
+            "match_w", torch.tensor(PARITY_MATCH_WEIGHTS) * PARITY_BOX_WEIGHT)
+
+    @torch.no_grad()
+    def forward(self, pred_classes, pred_boxes, gt_classes, gt_boxes):
+        device = pred_classes.device
+        if gt_boxes is None or gt_boxes.shape[0] == 0:
+            empty = torch.zeros(0, dtype=torch.int64, device=device)
+            return empty, empty
+
+        p = pred_classes.sigmoid()                                    # [N,C]
+        neg = -(1 - p + self.eps).log() * (1 - self.alpha) * p.pow(self.gamma)
+        pos = -(p + self.eps).log() * self.alpha * (1 - p).pow(self.gamma)
+        cost_cls = (pos - neg)[:, gt_classes] * PARITY_CLS_WEIGHT     # [N,M]
+
+        w = self.match_w.to(device=device, dtype=pred_boxes.dtype)    # [10]
+        diff = (pred_boxes[:, None, :10] - gt_boxes[None, :, :10]).abs()
+        cost_box = (diff * w).sum(-1)                                 # [N,M]
+
+        C = cost_cls + cost_box
+        if not torch.isfinite(C).all():
+            C = torch.nan_to_num(C, nan=1e6, posinf=1e6, neginf=-1e6)
+        pred_idx, gt_idx = linear_sum_assignment(C.detach().cpu().numpy())
+        return (
+            torch.as_tensor(pred_idx, dtype=torch.int64, device=device),
+            torch.as_tensor(gt_idx, dtype=torch.int64, device=device),
+        )
+
+
+def gaussian_focal_loss_sum(pred_sigmoid, target, alpha=2.0, gamma=4.0, eps=1e-12):
+    """mmdet GaussianFocalLoss (합만 반환, 정규화는 호출부).
+    binary target(0/1)에서 (1-t)^γ 항은 neg 에서 1이 된다.
+    ⚠️ eps 는 mmdet 과 동일하게 log **안**에 더한다. clamp(max=1-eps) 방식은
+    fp32 에서 1-1e-12 가 1.0 으로 반올림되어 saturated sigmoid(=1.0)에서
+    log(0)=-inf → NaN 이 된다(실측: BCE 로 학습된 epoch20 yns head)."""
+    p = pred_sigmoid
+    pos = -(p + eps).log() * (1 - p).pow(alpha) * target
+    neg = -(1 - p + eps).log() * p.pow(alpha) * (1 - target).pow(gamma)
+    return (pos + neg).sum()
+
+
+class ParityLoss(nn.Module):
+    """공식 Stage-1 detection loss 계약 — frame 단위 비정규화 합을 반환.
+
+    반환 dict:
+      cls_sum   : focal 합 × 2.0 (모든 query)
+      box_sum   : weighted L1 합 × 0.25 (gate 통과 positive)
+      cns_sum   : centerness BCE 합 (gate 통과 positive, detach 없음)
+      yns_sum   : yawness GaussianFocal 합 (gate 통과 positive)
+      num_pos   : matched GT 수 (gate 적용 전 — 정규화 분모)
+      num_gate  : gate(cls>0.05) 통과 positive 수 (진단용)
+    """
+
+    def __init__(self, num_classes=2):
+        super().__init__()
+        self.num_classes = num_classes
+        self.matcher = ParityHungarianMatcher()
+        self.register_buffer(
+            "reg_w", torch.tensor(PARITY_REG_WEIGHTS) * PARITY_BOX_WEIGHT)
+
+    def forward(self, pred_classes, pred_boxes, gt_classes, gt_boxes,
+                pred_quality=None, velocity_valid=None):
+        device = pred_classes.device
+        zero = pred_classes.new_tensor(0.0)
+
+        gt_boxes = gt_boxes.to(device=device, dtype=pred_boxes.dtype)
+        if not torch.is_tensor(gt_classes):
+            gt_classes = torch.as_tensor(gt_classes, device=device)
+        gt_classes = gt_classes.to(device=device).long().view(-1)
+
+        target = torch.zeros(
+            (pred_classes.shape[0], self.num_classes),
+            dtype=pred_classes.dtype, device=device)
+
+        if gt_boxes.shape[0] == 0 or gt_classes.shape[0] == 0:
+            # 전부 배경: focal neg 합만. num_pos 는 0 (배치 집계에서 분모 합산).
+            p = torch.sigmoid(pred_classes)
+            ce = F.binary_cross_entropy_with_logits(pred_classes, target, reduction='none')
+            focal = 0.75 * p.pow(2.0) * ce      # α=0.25, target=0 → (1-α)·p^γ·CE
+            return {"cls_sum": PARITY_CLS_WEIGHT * focal.sum(),
+                    "box_sum": zero, "cns_sum": zero, "yns_sum": zero,
+                    "num_pos": 0, "num_gate": 0}
+
+        pred_idx, gt_idx = self.matcher(pred_classes, pred_boxes, gt_classes, gt_boxes)
+        num_pos = int(len(pred_idx))
+        target[pred_idx, gt_classes[gt_idx]] = 1.0
+
+        # cls: sigmoid focal 합 (정규화 없음 — 배치 집계에서 ÷num_pos)
+        p = torch.sigmoid(pred_classes)
+        pt = p * target + (1 - p) * (1 - target)
+        alpha_t = 0.25 * target + 0.75 * (1 - target)
+        ce = F.binary_cross_entropy_with_logits(pred_classes, target, reduction='none')
+        cls_sum = PARITY_CLS_WEIGHT * (alpha_t * (1 - pt).pow(2.0) * ce).sum()
+
+        # reg/quality gate: matched ∧ cls>0.05 (공식 head 438-442행. 분모는 pre-gate num_pos)
+        with torch.no_grad():
+            gate = p[pred_idx].max(dim=-1).values > PARITY_CLS_THRESHOLD_TO_REG
+        pi, gi = pred_idx[gate], gt_idx[gate]
+        num_gate = int(gate.sum())
+
+        if num_gate == 0:
+            return {"cls_sum": cls_sum, "box_sum": zero, "cns_sum": zero,
+                    "yns_sum": zero, "num_pos": num_pos, "num_gate": 0}
+
+        # box: L1 · reg_w (vz 제외 10채널), velocity_valid 는 vx/vy 에만
+        w = self.reg_w.to(device=device, dtype=pred_boxes.dtype).clone()  # [10]
+        diff = (pred_boxes[pi, :10] - gt_boxes[gi, :10]).abs()            # [K,10]
+        wmat = w.unsqueeze(0).expand_as(diff).clone()
+        if velocity_valid is not None:
+            vv = velocity_valid.to(device=device, dtype=diff.dtype).view(-1)
+            wmat[:, 8:10] = wmat[:, 8:10] * vv[gi].clamp(0.0, 1.0).unsqueeze(1)
+        box_sum = (diff * wmat).sum()
+
+        cns_sum = zero
+        yns_sum = zero
+        if pred_quality is not None:
+            if pred_quality.ndim == 1:
+                pred_quality = pred_quality.unsqueeze(-1)
+            # centerness target: exp(−‖Δxyz‖₂) — 공식과 동일하게 detach 하지 않는다.
+            d3d = torch.norm(pred_boxes[pi, :3] - gt_boxes[gi, :3], dim=-1)
+            cns_target = torch.exp(-d3d)
+            cns_sum = F.binary_cross_entropy_with_logits(
+                pred_quality[pi, 0], cns_target, reduction='sum')
+            if pred_quality.shape[-1] > 1:
+                yns_target = (F.cosine_similarity(
+                    pred_boxes[pi, 6:8], gt_boxes[gi, 6:8], dim=-1) > 0).float()
+                yns_sum = gaussian_focal_loss_sum(
+                    torch.sigmoid(pred_quality[pi, 1]), yns_target)
+
+        return {"cls_sum": cls_sum, "box_sum": box_sum, "cns_sum": cns_sum,
+                "yns_sum": yns_sum, "num_pos": num_pos, "num_gate": num_gate}
 
 
 if __name__ == "__main__":

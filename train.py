@@ -1,4 +1,10 @@
-import wandb
+try:
+    import wandb
+except ImportError:  # 병렬 워커/최소 환경에서도 train.py import 가능하도록(WANDB_MODE와 무관한 안전장치)
+    class _WandbStub:
+        def __getattr__(self, _name):
+            return lambda *a, **k: None
+    wandb = _WandbStub()
 import math
 import os
 import csv
@@ -7,6 +13,12 @@ import hashlib
 import time
 
 import numpy as np
+
+try:
+    from joblib import Parallel, delayed
+    _HAS_JOBLIB = True
+except ImportError:
+    _HAS_JOBLIB = False
 
 import matplotlib
 matplotlib.use("Agg")
@@ -29,7 +41,7 @@ from morai_dataset import (
 from resnet_fpn import ResNet50_FPN, Bottleneck
 from anchor_generator import NUM_ANCHORS, generate_anchors_full
 from decoder import FFNDecoder
-from loss_calculator import CustomLoss
+from loss_calculator import CustomLoss, ParityLoss
 from make_kmeans import (
     DEFAULT_FULL_OUT,
     DEFAULT_K,
@@ -790,6 +802,10 @@ class AutoNavModel(nn.Module):
     def reset_temporal_memory(self):
         """배치 슬롯별 instance bank 상태 초기화. 슬롯 수는 첫 forward에서 확정."""
         self._bank = None   # list[dict|None] 길이 B; dict keys: feature/anchor/confidence/ego_pose/context
+        # telemetry (preflight/epoch 로그용): bank 무효화 횟수, 직전 forward 의 temporal 활성 수
+        self._bank_reset_count = 0
+        self._last_temporal_active = 0
+        self._last_batch_size = 0
 
     def _ensure_bank(self, batch_size):
         if self._bank is None or len(self._bank) != batch_size:
@@ -820,11 +836,13 @@ class AutoNavModel(nn.Module):
         ):
             if self._bank is not None and entry is not None and entry["context"] != context:
                 self._bank[slot] = None
+                self._bank_reset_count += 1
             return None, None, None
 
         dt = float(cur_timestamp) - float(entry["timestamp"])
         if not (0.0 < dt <= self.max_time_interval):
             self._bank[slot] = None
+            self._bank_reset_count += 1
             return None, None, None
 
         temp_feature = entry["feature"].to(device=device, dtype=dtype)
@@ -838,6 +856,7 @@ class AutoNavModel(nn.Module):
         )
         if aligned_anchor is None:
             self._bank[slot] = None
+            self._bank_reset_count += 1
             return None, None, None
         prev_conf = entry["confidence"].to(device=device)
         return temp_feature, aligned_anchor, prev_conf
@@ -970,6 +989,10 @@ class AutoNavModel(nn.Module):
                 det_feat.dtype,
             )
             temporal_active = temp_feat is not None
+            if b == 0:
+                self._last_temporal_active = 0
+                self._last_batch_size = B
+            self._last_temporal_active += int(temporal_active)
 
             det_cls = None
             det_quality = None
@@ -1470,6 +1493,161 @@ def compute_detection_counts_by_distance(
     return result
 
 
+@torch.no_grad()
+def compute_metrics_sweep(det_classes, det_boxes, gt_classes, gt_boxes,
+                          det_quality, metric_modes, score_thresholds,
+                          distance_thr=2.0, class_ids=(0, 1)):
+    """검증 metric 가속 (결과 보존).
+
+    기존: mode(3) × threshold(6) 마다 compute_detection_counts_by_class 를 호출 →
+          프레임당 decode/NMS + greedy 매칭을 18회 반복.
+    개선: mode 당 '최저 threshold(예: 0.01)'로 decode/NMS 를 1회만 수행하고,
+          클래스별 greedy 매칭을 score 내림차순으로 1회 sweep 하면서 각 threshold
+          경계에서 (tp,fp,fn) 스냅샷을 남긴다 → mode 당 decode 1회 + 클래스 sweep.
+
+    동치 근거:
+      - score 내림차순 NMS(+ top-k by score) 에서 낮은 점수 예측은 높은 점수 예측의
+        생존을 못 바꾸므로, {decode(0.01) 결과를 score>=T 로 필터} == {decode(T) 결과}.
+      - greedy 매칭도 score 내림차순이라 threshold T 의 결과 = 0.01 sweep 의 'score>=T
+        prefix' 와 동일. 따라서 sweep 중 T 경계 스냅샷이 by_class(T) 와 일치한다.
+
+    반환: {mode: {thr: {cls: (tp, fp, fn)}}} — overall 은 클래스 합으로 유도(기존과 동일).
+    """
+    gt_classes = gt_classes.long().view(-1)
+    thr_desc = sorted(score_thresholds, reverse=True)
+    min_thr = float(min(score_thresholds))
+    out = {}
+    for mode, (apply_quality, quality_power) in metric_modes.items():
+        pred_boxes, pred_labels, pred_scores = decode_detections(
+            det_classes, det_boxes, det_quality=det_quality,
+            score_thresh=min_thr, apply_quality=apply_quality,
+            quality_power=quality_power,
+        )
+        mode_out = {thr: {} for thr in score_thresholds}
+        for cls in class_ids:
+            p_sel = pred_labels == cls
+            g_boxes = gt_boxes[gt_classes == cls]
+            n_gt = int(g_boxes.shape[0])
+            p_boxes = pred_boxes[p_sel]
+            order = torch.argsort(pred_scores[p_sel], descending=True)
+            p_boxes = p_boxes[order]
+            scores_sorted = pred_scores[p_sel][order].tolist()
+
+            matched = torch.zeros(n_gt, dtype=torch.bool)
+            cum_tp = 0
+            cum_fp = 0
+            ti = 0
+            for i, s in enumerate(scores_sorted):
+                # 이 예측 점수보다 '엄격히 큰' threshold 는 이 예측을 포함하지 않음 → 여기서 확정
+                while ti < len(thr_desc) and thr_desc[ti] > s:
+                    mode_out[thr_desc[ti]][cls] = (cum_tp, cum_fp, n_gt - cum_tp)
+                    ti += 1
+                if n_gt == 0:
+                    cum_fp += 1
+                    continue
+                cand = torch.where(~matched)[0]
+                if cand.numel() == 0:
+                    cum_fp += 1
+                    continue
+                dists = torch.norm(g_boxes[cand, :2] - p_boxes[i, :2], dim=-1)
+                best_dist, best_local = dists.min(dim=0)
+                if best_dist <= distance_thr:
+                    matched[cand[best_local]] = True
+                    cum_tp += 1
+                else:
+                    cum_fp += 1
+            # 남은(작은) threshold: 모든 예측이 반영된 최종 상태
+            while ti < len(thr_desc):
+                mode_out[thr_desc[ti]][cls] = (cum_tp, cum_fp, n_gt - cum_tp)
+                ti += 1
+        out[mode] = mode_out
+    return out
+
+
+# 검증 metric 계약 상수 — val 함수와 멀티프로세싱 워커가 동일하게 공유(드리프트 방지).
+_VAL_METRIC_MODES = {
+    "calibrated": (True, 1.0),      # foreground * quality
+    "softcalibrated": (True, 0.5),  # foreground * sqrt(quality)
+    "raw": (False, 1.0),            # foreground only
+}
+_VAL_SCORE_THRESHOLDS = (0.01, 0.03, 0.05, 0.10, 0.15, 0.25)
+
+
+@torch.no_grad()
+def _val_frame_metric(det_cls, det_box, det_q, gt_cls, gt_box, recall_thr, class_ids):
+    """한 프레임의 검증 metric 전부(score 통계 + threshold sweep + 거리버킷)를 계산한다.
+    joblib 멀티프로세싱 워커로 쓰이며, 순수 CPU 연산이라 프레임 간 독립·결정적이다.
+    반환은 모두 '합산 가능한' 카운트/스칼라라 병합 순서와 무관하게 결과가 같다.
+    (입력 텐서는 이미 CPU 로 옮겨진 det/gt 이므로 CUDA fork 문제 없음.)"""
+    fg = det_cls.sigmoid()
+    raw_scores = fg.max(dim=-1).values
+    quality = torch.sigmoid(quality_centerness(det_q).view(-1)).clamp(min=1e-6)
+    soft_scores = raw_scores * quality.sqrt()
+    n = int(raw_scores.numel())
+    stats = {
+        "quality_sum": float(quality.sum()) if n else 0.0,
+        "raw_sum": float(raw_scores.sum()) if n else 0.0,
+        "soft_sum": float(soft_scores.sum()) if n else 0.0,
+        "quality_max": float(quality.max()) if n else 0.0,
+        "raw_max": float(raw_scores.max()) if n else 0.0,
+        "soft_max": float(soft_scores.max()) if n else 0.0,
+        "count": n,
+    }
+    swept = compute_metrics_sweep(
+        det_cls, det_box, gt_cls, gt_box, det_q,
+        _VAL_METRIC_MODES, _VAL_SCORE_THRESHOLDS,
+        distance_thr=recall_thr, class_ids=class_ids,
+    )
+    dist = compute_detection_counts_by_distance(
+        det_cls, det_box, gt_cls, gt_box, det_quality=det_q,
+        distance_thr=recall_thr, score_thresh=0.15,
+        apply_quality=True, quality_power=0.5,
+    )
+    return stats, swept, dist
+
+
+def _tensor_health(t):
+    """텐서(또는 텐서 리스트/튜플)의 (nan개수, inf개수, 원소수). None/비텐서면 None."""
+    if t is None:
+        return None
+    if isinstance(t, (list, tuple)):
+        parts = [p for p in (_tensor_health(x) for x in t) if p is not None]
+        if not parts:
+            return None
+        return (sum(p[0] for p in parts), sum(p[1] for p in parts), sum(p[2] for p in parts))
+    if not torch.is_tensor(t):
+        return None
+    tf = t.detach()
+    return (int(torch.isnan(tf).sum().item()), int(torch.isinf(tf).sum().item()), int(tf.numel()))
+
+
+def diagnose_nonfinite(tag, named_tensors, per_layer=None):
+    """비유한(NaN/Inf) loss 발생 시, 입력·모델출력 중 어디서 처음 비유한이 나왔는지 추적 로그.
+    named_tensors: [(name, tensor|list), ...] 파이프라인 순서. per_layer: (name, [B,L,...] 텐서)."""
+    print(f"[NaN-DIAG] {tag}")
+    any_bad = False
+    for name, t in named_tensors:
+        h = _tensor_health(t)
+        if h is None:
+            continue
+        nan, inf, n = h
+        flag = "⚠️" if (nan or inf) else "  "
+        if nan or inf:
+            any_bad = True
+            print(f"   {flag} {name}: nan={nan} inf={inf} / {n}")
+    # decoder refinement 레이어별로 어느 layer 부터 비유한인지 (aggregation vs refinement 구분)
+    if per_layer is not None:
+        pname, pt = per_layer
+        if torch.is_tensor(pt) and pt.ndim >= 2:
+            for li in range(pt.shape[1]):
+                h = _tensor_health(pt[:, li])
+                if h and (h[0] or h[1]):
+                    print(f"      ↳ {pname} layer {li}: nan={h[0]} inf={h[1]}  (여기부터 비유한)")
+                    break
+    if not any_bad:
+        print("   (검사 텐서엔 비유한 없음 → loss 내부 계산에서 발생 추정)")
+
+
 def compute_auxiliary_detection_loss(model_out, batch, criterion, device, aux_weight=0.5):
     """
     SparseDrive처럼 모든 decoder refinement 출력에 loss를 건다.
@@ -1520,6 +1698,70 @@ def compute_auxiliary_detection_loss(model_out, batch, criterion, device, aux_we
         box_loss_sum / normalizer,
         quality_loss_sum / normalizer,
     )
+
+
+def compute_parity_detection_loss(model_out, batch, criterion, device, aux_weight=None):
+    """Phase 2 공식 Stage-1 계약 집계.
+
+    compute_auxiliary_detection_loss 와 signature/반환 형태 호환(드롭인 교체).
+    차이:
+      - 정규화: 프레임별 평균이 아니라 **배치 전체 num_pos** 로 한 번 나눈다
+        (공식 head 435-437행 — per-object gradient 가 프레임 GT 밀도와 무관해짐)
+      - decoder 결합: aux_weight 가중평균이 아니라 6개 동일가중 **합산**
+      - criterion 은 ParityLoss (frame 단위 비정규화 합 반환)
+    aux_weight 인자는 호환용으로만 받고 무시한다.
+    진단용 부가 통계는 compute_parity_detection_loss.last_stats 에 기록된다.
+    """
+    all_cls = model_out['all_det_cls']          # [B, L, N, C]
+    all_box = model_out['all_det_box']          # [B, L, N, 11]
+    all_quality = model_out['all_det_quality']  # [B, L, N, 2]
+    B, L = all_cls.shape[:2]
+
+    zero = all_cls.new_tensor(0.0)
+    cls_sums = [zero] * L
+    box_sums = [zero] * L
+    qual_sums = [zero] * L
+    num_pos_batch = 0
+    num_gate_batch = 0
+
+    vel_valid_list = batch.get('velocity_valid', None)
+    for b in range(B):
+        gt_boxes = batch['dynamic_gt_boxes'][b].to(device)
+        gt_classes = batch['dynamic_gt_labels'][b].to(device)
+        vel_valid_b = None
+        if vel_valid_list is not None and b < len(vel_valid_list) and vel_valid_list[b] is not None:
+            vv = vel_valid_list[b]
+            vel_valid_b = vv.to(device) if torch.is_tensor(vv) else torch.as_tensor(vv, device=device)
+        for li in range(L):
+            out = criterion(
+                all_cls[b, li], all_box[b, li], gt_classes, gt_boxes,
+                all_quality[b, li], velocity_valid=vel_valid_b,
+            )
+            cls_sums[li] = cls_sums[li] + out['cls_sum']
+            box_sums[li] = box_sums[li] + out['box_sum']
+            qual_sums[li] = qual_sums[li] + out['cns_sum'] + out['yns_sum']
+            if li == L - 1:                     # num_pos 는 layer 무관(동일 GT)
+                num_pos_batch += out['num_pos']
+                num_gate_batch += out['num_gate']
+
+    denom = float(max(num_pos_batch, 1))
+    cls_loss = sum(cls_sums) / denom
+    box_loss = sum(box_sums) / denom
+    quality_loss = sum(qual_sums) / denom
+    total = cls_loss + box_loss + quality_loss
+
+    compute_parity_detection_loss.last_stats = {
+        'num_pos': num_pos_batch,
+        'num_gate': num_gate_batch,
+        'gate_rate': num_gate_batch / max(num_pos_batch, 1),
+    }
+    return total, cls_loss.detach(), box_loss.detach(), quality_loss.detach()
+
+
+compute_parity_detection_loss.last_stats = {}
+
+# 학습/검증 공용 loss 집계 dispatch. main 에서 LOSS_CONTRACT=parity 면 재바인딩된다.
+_AUX_LOSS_FN = compute_auxiliary_detection_loss
 
 
 def load_v10_weights(
@@ -1695,12 +1937,8 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
     loss_sum = 0.0
     n_batches = 0
     main_score_threshold = 0.05
-    metric_score_thresholds = (0.01, 0.03, main_score_threshold, 0.10, 0.15, 0.25)
-    metric_modes = {
-        'calibrated': (True, 1.0),      # foreground * quality
-        'softcalibrated': (True, 0.5),  # foreground * sqrt(quality)
-        'raw': (False, 1.0),            # foreground only
-    }
+    metric_score_thresholds = _VAL_SCORE_THRESHOLDS   # 워커와 동일 상수 공유(드리프트 방지)
+    metric_modes = _VAL_METRIC_MODES
     metric_counts = {
         mode: {
             thr: {'tp': 0, 'fp': 0, 'fn': 0}
@@ -1727,6 +1965,53 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
         for i in range(len(DISTANCE_BUCKETS))
     }
 
+    # ── 검증 metric 병렬화 (프레임 단위 독립 → 멀티프로세싱). env VAL_METRIC_WORKERS 로 제어.
+    #    joblib 이 입력 순서대로 결과를 반환하고 병합은 합산이라, 직렬 경로와 bit-단위 동일.
+    #    VAL_METRIC_WORKERS<=1 또는 joblib 없음 → 직렬 fallback. VAL_METRIC_BLOCK: 메모리 상한.
+    _val_workers = int(os.environ.get(
+        "VAL_METRIC_WORKERS", str(max(1, min(10, (os.cpu_count() or 2) - 2)))))
+    _use_parallel = bool(compute_metric and _val_workers > 1 and _HAS_JOBLIB)
+    _val_block = max(1, int(os.environ.get("VAL_METRIC_BLOCK", "512")))
+    _pending = []
+
+    def _merge_frame(result):
+        nonlocal score_count
+        stats, swept, dist = result
+        score_sums['quality'] += stats['quality_sum']
+        score_sums['raw'] += stats['raw_sum']
+        score_sums['soft'] += stats['soft_sum']
+        score_max['quality'] = max(score_max['quality'], stats['quality_max'])
+        score_max['raw'] = max(score_max['raw'], stats['raw_max'])
+        score_max['soft'] = max(score_max['soft'], stats['soft_max'])
+        score_count += stats['count']
+        for mode in metric_modes:
+            for score_thr in metric_score_thresholds:
+                tp = fp = fn = 0
+                for cls in class_ids:
+                    ctp, cfp, cfn = swept[mode][score_thr][cls]
+                    metric_counts_cls[mode][score_thr][cls]['tp'] += ctp
+                    metric_counts_cls[mode][score_thr][cls]['fp'] += cfp
+                    metric_counts_cls[mode][score_thr][cls]['fn'] += cfn
+                    tp += ctp
+                    fp += cfp
+                    fn += cfn
+                metric_counts[mode][score_thr]['tp'] += tp
+                metric_counts[mode][score_thr]['fp'] += fp
+                metric_counts[mode][score_thr]['fn'] += fn
+        for b, counts in dist.items():
+            for k in ('tp', 'fp', 'fn', 'dist_sum', 'dist_n'):
+                distance_bucket_counts[b][k] += counts[k]
+
+    def _flush_pending():
+        if not _pending:
+            return
+        for r in Parallel(n_jobs=_val_workers, prefer='processes')(
+            delayed(_val_frame_metric)(dc, db, dq, gc, gb, recall_thr, class_ids)
+            for (dc, db, dq, gc, gb) in _pending
+        ):
+            _merge_frame(r)
+        _pending.clear()
+
     frames_done = 0
     for batch in loader:
         if max_frames and frames_done >= max_frames:
@@ -1751,77 +2036,36 @@ def validate(model, loader, criterion, device, compute_metric=False, recall_thr=
         det_classes_b = model_out['det_cls'].detach().cpu()
         det_boxes_b = model_out['det_box'].detach().cpu()
         det_quality_b = model_out['det_quality'].detach().cpu()
-        batch_loss, _, _, _ = compute_auxiliary_detection_loss(
+        batch_loss, _, _, _ = _AUX_LOSS_FN(
             model_out, batch, criterion, device
         )
 
         for i in range(n):
+            if not compute_metric:
+                continue
             # det_*_b가 CPU이므로 GT도 CPU에 둔다(metric matching 전용, sync 제거).
-            gt_boxes = batch['dynamic_gt_boxes'][i].cpu()
-            gt_classes = batch['dynamic_gt_labels'][i].cpu()
+            # clone: 워커로 넘길 프레임 조각을 batch 텐서에서 분리(배치 조기 해제 + pickling 안전).
+            frame = (
+                det_classes_b[i].clone(), det_boxes_b[i].clone(), det_quality_b[i].clone(),
+                batch['dynamic_gt_labels'][i].cpu().clone(),
+                batch['dynamic_gt_boxes'][i].cpu().clone(),
+            )
+            if _use_parallel:
+                _pending.append(frame)
+            else:
+                # 직렬 경로: 워커 함수를 그대로 호출(병렬과 동일 계산) → bit-단위 동일
+                dc, db, dq, gc, gb = frame
+                _merge_frame(_val_frame_metric(dc, db, dq, gc, gb, recall_thr, class_ids))
 
-            if compute_metric:
-                fg_probs = det_classes_b[i].sigmoid()
-                raw_scores = fg_probs.max(dim=-1).values
-                quality = torch.sigmoid(
-                    quality_centerness(det_quality_b[i]).view(-1)
-                ).clamp(min=1e-6)
-                soft_scores = raw_scores * quality.sqrt()
-                score_sums['quality'] += float(quality.sum().item())
-                score_sums['raw'] += float(raw_scores.sum().item())
-                score_sums['soft'] += float(soft_scores.sum().item())
-                score_max['quality'] = max(score_max['quality'], float(quality.max().item()))
-                score_max['raw'] = max(score_max['raw'], float(raw_scores.max().item()))
-                score_max['soft'] = max(score_max['soft'], float(soft_scores.max().item()))
-                score_count += int(raw_scores.numel())
-
-                for mode, (apply_quality, quality_power) in metric_modes.items():
-                    for score_thr in metric_score_thresholds:
-                        # 클래스별 카운트 (합산은 클래스별 합과 동일 → 기존 합산 로그 값 보존)
-                        per_cls = compute_detection_counts_by_class(
-                            det_classes_b[i],
-                            det_boxes_b[i],
-                            gt_classes,
-                            gt_boxes,
-                            det_quality=det_quality_b[i],
-                            distance_thr=recall_thr,
-                            score_thresh=score_thr,
-                            apply_quality=apply_quality,
-                            quality_power=quality_power,
-                            class_ids=class_ids,
-                        )
-                        tp = fp = fn = 0
-                        for cls in class_ids:
-                            ctp, cfp, cfn = per_cls[cls]
-                            metric_counts_cls[mode][score_thr][cls]['tp'] += ctp
-                            metric_counts_cls[mode][score_thr][cls]['fp'] += cfp
-                            metric_counts_cls[mode][score_thr][cls]['fn'] += cfn
-                            tp += ctp
-                            fp += cfp
-                            fn += cfn
-                        metric_counts[mode][score_thr]['tp'] += tp
-                        metric_counts[mode][score_thr]['fp'] += fp
-                        metric_counts[mode][score_thr]['fn'] += fn
-
-                # v10: softcalibrated@0.15 거리구간별 집계 (기존 루프와 독립)
-                bucket_result = compute_detection_counts_by_distance(
-                    det_classes_b[i],
-                    det_boxes_b[i],
-                    gt_classes,
-                    gt_boxes,
-                    det_quality=det_quality_b[i],
-                    distance_thr=recall_thr,
-                    score_thresh=0.15,
-                    apply_quality=True,
-                    quality_power=0.5,
-                )
-                for b, counts in bucket_result.items():
-                    for k in ('tp', 'fp', 'fn', 'dist_sum', 'dist_n'):
-                        distance_bucket_counts[b][k] += counts[k]
+        if _use_parallel and len(_pending) >= _val_block:
+            _flush_pending()
 
         loss_sum += batch_loss.item()
         n_batches += 1
         frames_done += n
+
+    if _use_parallel:
+        _flush_pending()   # 남은 프레임 병합
 
     avg_loss = loss_sum / max(n_batches, 1)
     if not compute_metric:
@@ -1916,6 +2160,8 @@ HISTORY_FIELDS = [
     'train_cls_loss',
     'train_box_loss',
     'train_quality_loss',
+    'train_depth_loss',
+    'train_det_loss',   # = train_loss - train_depth_loss (val_loss 와 비교 가능한 detection-only)
     'val_loss',
     'lr',
     'val_quality_mean',
@@ -1942,7 +2188,7 @@ def _history_metric(val_metrics, mode, score_thr, key):
 
 
 def make_history_record(epoch, train_loss, train_cls_loss, train_box_loss,
-                        train_quality_loss, val_loss, lr, val_metrics):
+                        train_quality_loss, train_depth_loss, val_loss, lr, val_metrics):
     score_stats = (val_metrics or {}).get('score_stats', {})
     record = {
         'epoch': int(epoch),
@@ -1950,6 +2196,10 @@ def make_history_record(epoch, train_loss, train_cls_loss, train_box_loss,
         'train_cls_loss': float(train_cls_loss),
         'train_box_loss': float(train_box_loss),
         'train_quality_loss': float(train_quality_loss),
+        'train_depth_loss': float(train_depth_loss),
+        # detection-only train loss = total - depth. val_loss 는 depth 를 안 쓰므로(eval 에선
+        # depth head 미실행) train_loss(=det+depth)와 직접 비교하면 안 되고 이 값과 비교해야 한다.
+        'train_det_loss': float(train_loss) - float(train_depth_loss),
         'val_loss': float(val_loss),
         'lr': float(lr),
         'val_quality_mean': float(score_stats.get('quality', float('nan'))),
@@ -1996,6 +2246,25 @@ def load_training_history(csv_path, max_epoch=None):
     return records
 
 
+def append_epoch_loss_log(path, epoch, train_stats, lr):
+    """매 epoch(=완료된 학습 epoch)마다 train loss 분해를 텍스트(CSV)로 append.
+    training_history.csv 와 달리 validation 여부와 무관하게 모든 epoch를 남긴다."""
+    if not path:
+        return
+    is_new = not os.path.isfile(path)
+    with open(path, 'a', newline='') as f:
+        writer = csv.writer(f)
+        if is_new:
+            writer.writerow(['epoch', 'det_loss', 'cls_loss', 'box_loss',
+                             'quality_loss', 'depth_loss', 'lr'])
+        writer.writerow([
+            int(epoch),
+            f"{train_stats['loss']:.6f}", f"{train_stats['cls']:.6f}",
+            f"{train_stats['box']:.6f}", f"{train_stats['quality']:.6f}",
+            f"{train_stats['depth']:.6f}", f"{lr:.3e}",
+        ])
+
+
 def save_training_history(records, csv_path, plot_path):
     if not records:
         return
@@ -2007,12 +2276,16 @@ def save_training_history(records, csv_path, plot_path):
             writer.writerow({field: record.get(field, float('nan')) for field in HISTORY_FIELDS})
 
     epochs = [int(record['epoch']) for record in records]
-    train_losses = [float(record['train_loss']) for record in records]
-    val_losses = [float(record['val_loss']) for record in records]
+    train_losses = [float(record['train_loss']) for record in records]                     # total(det+depth)
+    train_det = [float(record.get('train_det_loss', float('nan'))) for record in records]   # det-only
+    val_losses = [float(record['val_loss']) for record in records]                          # det-only
 
-    fig, ax = plt.subplots(figsize=(9, 5))
-    ax.plot(epochs, train_losses, marker='o', linewidth=1.8, label='Train loss')
-    ax.plot(epochs, val_losses, marker='o', linewidth=2.2, label='Val loss')
+    fig, (ax, ax2) = plt.subplots(2, 1, figsize=(9, 9), sharex=True)
+    # val_loss 는 detection-only(eval 에서 depth head 미실행)이므로, 공정 비교는 train_det 와의 비교.
+    # train total(det+depth)은 참고용 얇은 선.
+    ax.plot(epochs, train_det, marker='o', linewidth=1.8, label='Train (det-only)')
+    ax.plot(epochs, val_losses, marker='o', linewidth=2.2, label='Val (det-only)')
+    ax.plot(epochs, train_losses, marker='.', linewidth=1.0, alpha=0.45, label='Train total (det+depth)')
 
     finite_val = [(idx, loss) for idx, loss in enumerate(val_losses) if math.isfinite(loss)]
     if finite_val:
@@ -2025,11 +2298,22 @@ def save_training_history(records, csv_path, plot_path):
             label=f'Best val {best_loss:.4f}',
         )
 
-    ax.set_title('Training / Validation Loss')
-    ax.set_xlabel('Epoch')
-    ax.set_ylabel('Loss')
+    ax.set_title('Detection loss: Train(det-only) vs Val  [+ train total]')
+    ax.set_ylabel('loss')
     ax.grid(True, alpha=0.3)
     ax.legend()
+
+    # train loss 성분 분해 (det=cls+box+quality+depth)
+    for field, lbl in (('train_cls_loss', 'Cls'), ('train_box_loss', 'Box'),
+                       ('train_quality_loss', 'Quality'), ('train_depth_loss', 'Depth')):
+        ys = [float(record.get(field, float('nan'))) for record in records]
+        ax2.plot(epochs, ys, marker='.', linewidth=1.5, label=lbl)
+    ax2.set_title('Train loss breakdown (cls / box / quality / depth)')
+    ax2.set_xlabel('Epoch (validation index)')
+    ax2.set_ylabel('Component loss')
+    ax2.grid(True, alpha=0.3)
+    ax2.legend()
+
     fig.tight_layout()
     fig.savefig(plot_path, dpi=160)
     plt.close(fig)
@@ -2255,10 +2539,53 @@ if __name__ == "__main__":
         _transfer_requested = False
     TRANSFER_MODE = _transfer_requested
 
+    # ── Phase 2: loss 계약 선택 + weight-only 초기화 ──────────────────
+    # LOSS_CONTRACT:
+    #   legacy (기본) → 기존 CustomLoss + compute_auxiliary_detection_loss (동작 불변)
+    #   parity        → 공식 Stage-1 계약 (ParityLoss + batch num_pos 정규화,
+    #                   decoder 동일가중 합산) — Phase 2 repair pilot / 재학습용
+    # INIT_WEIGHTS: model weight 만 로드 (optimizer/scheduler/step 은 초기화 상태 유지).
+    #   repair pilot 계약: RESUME 과 상호배타 — resume 은 optimizer 까지 복원하므로
+    #   "새 objective + 새 optimizer" 라는 pilot 정의와 충돌한다.
+    LOSS_CONTRACT = (os.environ.get('LOSS_CONTRACT', 'legacy') or 'legacy').strip().lower()
+    if LOSS_CONTRACT not in ('legacy', 'parity'):
+        raise ValueError(f"LOSS_CONTRACT must be legacy|parity: {LOSS_CONTRACT}")
+    INIT_WEIGHTS = os.environ.get('INIT_WEIGHTS') or None
+    if INIT_WEIGHTS and not os.path.isfile(INIT_WEIGHTS):
+        raise FileNotFoundError(f"INIT_WEIGHTS 파일 없음: {INIT_WEIGHTS}")
+    if INIT_WEIGHTS and RESUMING:
+        raise ValueError("INIT_WEIGHTS 와 RESUME 은 함께 쓸 수 없습니다 (pilot 계약).")
+    # preflight: 처음 N optimizer update 동안 grad norm/clip/loss 성분/num_pos 기록
+    PREFLIGHT_UPDATES = int(os.environ.get('PREFLIGHT_UPDATES', '300'))
+    # 진단용 조기 종료: N optimizer update 후 정상 checkpoint 저장하고 종료.
+    # scheduler horizon(NUM_EPOCHS 기반 cosine 길이)은 그대로 유지되므로,
+    # 확장 preflight 를 "본 학습과 동일한 LR 궤적의 앞부분"으로 관측할 수 있다.
+    # (1-epoch 축소 horizon 으로 돌리면 후반이 cosine 급감쇠라 grad 안정화와
+    #  LR 강제 하락을 구분할 수 없음 — 2026-07-31 동료 리뷰.) 0=비활성.
+    STOP_AFTER_UPDATES = int(os.environ.get('STOP_AFTER_UPDATES', '0'))
+
+    # optimizer 계약 (scratch parity run 용):
+    #   legacy (기본) → backbone 1e-5/wd 1e-3, head 5e-5/wd 1e-2, warmup 0→1 (기존 동작)
+    #   parity        → 공식 batch-scaled: backbone 2.5e-5(scale 0.5), 전체 wd 1e-3,
+    #                   warmup 을 1/3 에서 시작 (mmcv warmup_ratio=1/3)
+    OPTIM_CONTRACT = (os.environ.get('OPTIM_CONTRACT', 'legacy') or 'legacy').strip().lower()
+    if OPTIM_CONTRACT not in ('legacy', 'parity'):
+        raise ValueError(f"OPTIM_CONTRACT must be legacy|parity: {OPTIM_CONTRACT}")
+    WARMUP_START_RATIO = (1.0 / 3.0) if OPTIM_CONTRACT == 'parity' else 0.0
+    # 정기 checkpoint 주기(epoch). 기본 10 = 기존 동작. scratch 30ep run 은 5 로 설정해
+    # epoch 5/10/.../30 스냅샷을 남기고 AP 평가에 사용한다.
+    CHECKPOINT_EVERY_EPOCHS = int(os.environ.get('CHECKPOINT_EVERY_EPOCHS', '10'))
+    if CHECKPOINT_EVERY_EPOCHS < 1:
+        raise ValueError("CHECKPOINT_EVERY_EPOCHS must be >= 1")
+
     HISTORY_CSV_PATH     = (os.path.join(RUN_DIR, "training_history.csv")
                             if RUN_DIR else "training_history.csv")
     HISTORY_PLOT_PATH    = (os.path.join(RUN_DIR, "training_curves.png")
                             if RUN_DIR else "training_curves.png")
+    # 매 epoch train loss 분해(det/cls/box/quality/depth)를 남기는 텍스트 로그.
+    # training_history.csv 는 validation cadence(예: 5 epoch)마다만 기록되므로 별도로 둔다.
+    EPOCH_LOSS_LOG_PATH  = (os.path.join(RUN_DIR, "epoch_losses.csv")
+                            if RUN_DIR else "epoch_losses.csv")
     WARMUP_STEPS         = 500
     MIN_LR_RATIO         = 1e-3
     if RESUMING:
@@ -2461,7 +2788,9 @@ if __name__ == "__main__":
         'cuda_available': torch.cuda.is_available(),
         'device': str(device),
         'gpu_name': (torch.cuda.get_device_name(0) if torch.cuda.is_available() else None),
-        'deformable_fallback': 'grid_sample (no nvcc)',
+        # 실제 모드는 첫 forward 때 결정된다(CUDA op 성공 시 CUDA, 실패 시 grid_sample fallback).
+        # 예전엔 무조건 'grid_sample (no nvcc)'로 잘못 고정돼 있었음(RTX 5070에선 CUDA op 정상 동작).
+        'deformable_agg': 'CUDA deformable op preferred; grid_sample fallback only on CUDA op failure',
     }
     with open(os.path.join(OUTPUT_CKPT_DIR, 'run_config.json'), 'w', encoding='utf-8') as _f:
         json.dump(RUN_CONFIG, _f, indent=2, ensure_ascii=False)
@@ -2503,6 +2832,22 @@ if __name__ == "__main__":
     # v11 전이: v10 가중치를 규칙 기반 부분전이 (옵티마이저 그룹 구성보다 먼저)
     if TRANSFER_MODE:
         load_v10_weights(model, TRANSFER_FROM_V10)
+
+    # Phase 2 repair pilot: model weight 만 로드. optimizer/scheduler/step 은 그대로
+    # 초기 상태(pilot 계약: "weight = checkpoint, 나머지 = 새로").
+    if INIT_WEIGHTS:
+        _ck = torch.load(INIT_WEIGHTS, map_location='cpu', weights_only=False)
+        _sd = _ck.get('model_state', _ck) if isinstance(_ck, dict) else _ck
+        _missing, _unexpected = model.load_state_dict(_sd, strict=False)
+        # depth head 유무 차이만 허용 — 그 외 불일치는 다른 아키텍처이므로 즉시 중단
+        _bad_m = [k for k in _missing if not k.startswith('depth_net.')]
+        _bad_u = [k for k in _unexpected if not k.startswith('depth_net.')]
+        if _bad_m or _bad_u:
+            raise RuntimeError(
+                f"INIT_WEIGHTS 아키텍처 불일치: missing={_bad_m[:5]}, unexpected={_bad_u[:5]}")
+        print(f"[학습] INIT_WEIGHTS 로드: {INIT_WEIGHTS} "
+              f"(depth_net 제외 missing={len(_missing)-len(_bad_m)}, "
+              f"unexpected={len(_unexpected)-len(_bad_u)})")
 
     dataset_cls = MoraiTemporalDataset if USE_TEMPORAL_DATASET else MoraiDataset
     collate_fn = morai_temporal_collate_fn if USE_TEMPORAL_DATASET else morai_collate_fn
@@ -2572,6 +2917,12 @@ if __name__ == "__main__":
         'val_batches_per_eval': len(val_loader),
         'train_frames_per_epoch': _train_frames_per_epoch,
         'streaming_train_dropped_frames': max(len(train_ds) - _train_frames_per_epoch, 0),
+        'loss_contract': LOSS_CONTRACT,
+        'optim_contract': OPTIM_CONTRACT,
+        'cls_prior_prob': float(os.environ.get('CLS_PRIOR_PROB', '0.1')),
+        'checkpoint_every_epochs': CHECKPOINT_EVERY_EPOCHS,
+        'init_weights': INIT_WEIGHTS,
+        'preflight_updates': PREFLIGHT_UPDATES,
     })
     with open(os.path.join(OUTPUT_CKPT_DIR, 'run_config.json'), 'w', encoding='utf-8') as _f:
         json.dump(RUN_CONFIG, _f, indent=2, ensure_ascii=False)
@@ -2583,7 +2934,13 @@ if __name__ == "__main__":
 
     # num_classes=2: vehicle, pedestrian (sigmoid focal, 배경 채널 없음)
     # v9: quality_weight=0.2 명시 — centerness/confidence 학습 강화
-    det_criterion = CustomLoss(num_classes=2, quality_weight=0.2).to(device)
+    if LOSS_CONTRACT == 'parity':
+        det_criterion = ParityLoss(num_classes=2).to(device)
+        _AUX_LOSS_FN = compute_parity_detection_loss
+        print("   - loss 계약  : parity (공식 Stage-1: focal-cost matcher, "
+              "batch num_pos 정규화, decoder 동일가중 합산, cls>0.05 reg/qual gate)")
+    else:
+        det_criterion = CustomLoss(num_classes=2, quality_weight=0.2).to(device)
 
     if TRANSFER_MODE:
         # 3단 그룹: backbone×0.1 / 전이부×0.5 / 신규(depth·temp·reg velocity)×1.0
@@ -2605,15 +2962,29 @@ if __name__ == "__main__":
         backbone_params = list(model.backbone.parameters())
         backbone_ids    = set(id(p) for p in backbone_params)
         other_params    = [p for p in model.parameters() if id(p) not in backbone_ids]
+        # wandb 메타데이터는 실제 optimizer(아래 AdamW) 값과 반드시 일치시킨다.
+        # (과거 2e-5/1e-4 로 잘못 기록돼 있었음 — 실제 LR 은 1e-5/5e-5)
         wandb_cfg = {
-            "lr_backbone": 2e-5, "lr_head": 1e-4, "wd_backbone": 1e-3,
-            "wd_head": 1e-2, "batch_size": 4, "grad_accum": 2,
+            "lr_backbone": 1e-5, "lr_head": 5e-5, "wd_backbone": 1e-3,
+            "wd_head": 1e-2, "batch_size": BATCH_SIZE, "grad_accum": GRAD_ACCUM_STEPS,
         }
         wandb_name, wandb_tags = "v10", ["v10"]
-        optimizer = optim.AdamW([
-            {'params': backbone_params, 'lr': 1e-5,  'weight_decay': 1e-3},
-            {'params': other_params,    'lr': 5e-5,  'weight_decay': 1e-2},
-        ])
+        if OPTIM_CONTRACT == 'parity':
+            # 공식 stage-1 을 effective batch 8/64 로 스케일: head 4e-4×1/8=5e-5,
+            # backbone lr_mult 0.5 → 2.5e-5, weight decay 는 전 그룹 1e-3.
+            optimizer = optim.AdamW([
+                {'params': backbone_params, 'lr': 2.5e-5, 'weight_decay': 1e-3},
+                {'params': other_params,    'lr': 5e-5,   'weight_decay': 1e-3},
+            ])
+            wandb_cfg.update({"lr_backbone": 2.5e-5, "wd_head": 1e-3,
+                              "optim_contract": "parity"})
+            print("   - optim 계약 : parity (backbone 2.5e-5/wd 1e-3, head 5e-5/wd 1e-3, "
+                  "warmup 1/3 시작)")
+        else:
+            optimizer = optim.AdamW([
+                {'params': backbone_params, 'lr': 1e-5,  'weight_decay': 1e-3},
+                {'params': other_params,    'lr': 5e-5,  'weight_decay': 1e-2},
+            ])
 
     wandb.init(
         project="morai-3d-detection",
@@ -2627,7 +2998,10 @@ if __name__ == "__main__":
 
     def lr_lambda(step):
         if step < WARMUP_STEPS:
-            return max(float(step + 1) / float(max(WARMUP_STEPS, 1)), MIN_LR_RATIO)
+            # legacy: 0→1 선형 (WARMUP_START_RATIO=0, 기존과 동일).
+            # parity: 공식 warmup_ratio=1/3 → base·1/3 에서 시작해 base 까지 선형.
+            lin = float(step + 1) / float(max(WARMUP_STEPS, 1))
+            return max(WARMUP_START_RATIO + (1.0 - WARMUP_START_RATIO) * lin, MIN_LR_RATIO)
         denom = max(total_update_steps - WARMUP_STEPS, 1)
         progress = min(float(step - WARMUP_STEPS) / float(denom), 1.0)
         cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
@@ -2687,6 +3061,17 @@ if __name__ == "__main__":
                     'validate_every_epochs': VALIDATE_EVERY_EPOCHS,
                     'fast_val_max_frames': FAST_VAL_MAX_FRAMES,
                     'max_steps_per_epoch': MAX_STEPS_PER_EPOCH,
+                    # Phase 2 계약: legacy checkpoint 를 parity 로(또는 반대로) 조용히
+                    # 이어받거나, NUM_EPOCHS 변경으로 cosine 길이가 달라지는 것을 차단.
+                    'loss_contract': LOSS_CONTRACT,
+                    'optim_contract': OPTIM_CONTRACT,
+                    'num_epochs': NUM_EPOCHS,
+                    'warmup_steps': WARMUP_STEPS,
+                    'min_lr_ratio': MIN_LR_RATIO,
+                    # 실효 LR/WD 값 자체도 비교 — OPTIM_CONTRACT 이름은 같아도 코드에서
+                    # parity 값이 바뀌면 감지된다 (계약 버전/hash 의 역할을 값 비교로 수행).
+                    'base_lrs': base_lrs,
+                    'weight_decays': [g['weight_decay'] for g in optimizer.param_groups],
                 }
                 for _key, _run_value in _resume_contract.items():
                     if _key in ckpt and ckpt.get(_key) != _run_value:
@@ -2723,9 +3108,12 @@ if __name__ == "__main__":
             best_recall = float(ckpt.get('best_recall', best_recall))
             best_val_loss = float(ckpt.get('best_val_loss', best_val_loss))
             best_scores.update(ckpt.get('best_scores', {}))
-            best_scores['val_loss'] = min(best_scores['val_loss'], best_val_loss)
+            # (best_scores['val_loss'] 는 체크포인트 값을 그대로 사용 — primary tie-break용
+            #  best_val_loss 와 섞지 않는다. 예전엔 min 으로 커플링돼 두 지표가 오염됐음.)
             epochs_no_improve = int(ckpt.get('epochs_no_improve', epochs_no_improve))
-            epochs_no_improve = 0  # v9 새 실험 시작 — 체크포인트 로드 직후 카운터 리셋
+            # resume 는 같은 실험의 '연속'이므로 patience 카운터를 그대로 유지한다.
+            # (예전엔 여기서 0으로 강제 리셋해 재시작마다 early-stop 이 처음부터 다시 세는 결함이
+            #  있었음 — 중단되어야 할 학습이 계속 이어질 수 있었다.)
             history_records = ckpt.get('history_records', [])
             if not history_records:
                 history_records = load_training_history(HISTORY_CSV_PATH, max_epoch=start_epoch)
@@ -2811,6 +3199,18 @@ if __name__ == "__main__":
             'validate_every_epochs': VALIDATE_EVERY_EPOCHS,
             'fast_val_max_frames': FAST_VAL_MAX_FRAMES,
             'max_steps_per_epoch': MAX_STEPS_PER_EPOCH,
+            # Phase 2: loss/optimizer/scheduler 계약 — resume 시 fail-fast 비교 대상.
+            # NUM_EPOCHS 는 cosine 전체 길이를 결정하므로 반드시 일치해야 한다.
+            'loss_contract': LOSS_CONTRACT,
+            'optim_contract': OPTIM_CONTRACT,
+            'num_epochs': NUM_EPOCHS,
+            'warmup_steps': WARMUP_STEPS,
+            'min_lr_ratio': MIN_LR_RATIO,
+            'base_lrs': base_lrs,
+            'weight_decays': [g['weight_decay'] for g in optimizer.param_groups],
+            # 참고용(불일치해도 무해 — model_state 가 bias 를 덮어씀 / 스냅샷 주기만 변경)
+            'cls_prior_prob': float(os.environ.get('CLS_PRIOR_PROB', '0.1')),
+            'checkpoint_every_epochs': CHECKPOINT_EVERY_EPOCHS,
         }, LAST_CHECKPOINT_PATH)
         print(f"   💾 Resume 체크포인트 저장: {LAST_CHECKPOINT_PATH}"
               f" (epoch={epoch_idx+1}, completed={epoch_completed})")
@@ -2912,6 +3312,7 @@ if __name__ == "__main__":
             train_cls_loss,
             train_box_loss,
             train_quality_loss,
+            train_depth_loss,
             val_loss,
             lr,
             val_metrics,
@@ -2923,11 +3324,13 @@ if __name__ == "__main__":
             "epoch": epoch_idx + 1,
             "eval_point": eval_counter,
             "update_step": global_update_step,
-            "train/loss": train_loss,
+            "train/loss": train_loss,                       # total = det + depth
             "train/cls_loss": train_cls_loss,
             "train/box_loss": train_box_loss,
             "train/quality_loss": train_quality_loss,
-            "val/loss": val_loss,
+            "train/depth_loss": train_depth_loss,
+            "train/det_loss": train_loss - train_depth_loss,  # val/loss 와 비교 가능한 detection-only
+            "val/loss": val_loss,                           # detection-only (eval 은 depth 미실행)
             "lr": lr,
         }
         if val_metrics is not None:
@@ -2962,26 +3365,36 @@ if __name__ == "__main__":
         primary_score = metric_value(
             val_metrics, PRIMARY_BEST_MODE, PRIMARY_BEST_THR, PRIMARY_BEST_KEY,
         )
-        primary_improved = (
-            primary_score > best_scores['primary'] + EARLY_STOP_MIN_DELTA or
-            (
-                abs(primary_score - best_scores['primary']) <= EARLY_STOP_MIN_DELTA and
-                val_loss < best_val_loss
-            )
+        # Primary best(softcalibrated f1@0.15) 선택 + early-stop.
+        #  - genuine_improve : F1 이 min_delta 이상 실제 상승 → best F1 갱신 + patience 리셋
+        #  - tie_break       : F1 은 동률(±min_delta)이되 '현재 best 이상'이고 val_loss 가 더 낮음
+        #                      → 체크포인트만 더 나은 것으로 교체. best F1 은 낮아지지 않고(max),
+        #                        patience 도 리셋하지 않는다(실제 F1 개선이 아니므로 계속 카운트).
+        #  ⚠️ 과거엔 F1 이 best 보다 '조금 낮아도'(1e-4 이내) val_loss 만 낮으면 저장+리셋해서
+        #     best F1 이 계속 내려가고 early-stop 이 안 걸리는 결함이 있었다.
+        genuine_improve = primary_score > best_scores['primary'] + EARLY_STOP_MIN_DELTA
+        tie_break = (
+            (not genuine_improve)
+            and primary_score >= best_scores['primary']     # best 보다 낮은 F1 은 절대 저장 안 함
+            and val_loss < best_val_loss
         )
-        if primary_improved:
-            best_scores['primary'] = primary_score
+        if genuine_improve or tie_break:
+            best_scores['primary'] = max(best_scores['primary'], primary_score)
             best_val_loss = min(best_val_loss, val_loss)
-            epochs_no_improve = 0
+            if genuine_improve:
+                epochs_no_improve = 0
+            else:
+                epochs_no_improve += 1   # 동률 교체는 F1 개선이 아님 → early-stop 계속 카운트
             epoch_best_path = save_best_with_epoch(
                 model, BEST_MODEL_PATH, epoch_idx + 1,
                 f"{PRIMARY_BEST_MODE}_{PRIMARY_BEST_KEY}_{_score_suffix(PRIMARY_BEST_THR)}",
                 primary_score,
             )
+            _tag = "improve" if genuine_improve else "tie(val_loss↓)"
             print(
-                f"   💾 Primary best 저장: {BEST_MODEL_PATH} | "
+                f"   💾 Primary best 저장[{_tag}]: {BEST_MODEL_PATH} | "
                 f"{PRIMARY_BEST_MODE} {PRIMARY_BEST_KEY}@{PRIMARY_BEST_THR:.2f}="
-                f"{primary_score:.4f} | Val Loss: {val_loss:.4f}"
+                f"{primary_score:.4f} (best={best_scores['primary']:.4f}) | Val Loss: {val_loss:.4f}"
                 f"\n      ↳ epoch snapshot: {epoch_best_path}"
             )
         else:
@@ -3005,7 +3418,7 @@ if __name__ == "__main__":
 
         if val_loss < best_scores['val_loss'] - EARLY_STOP_MIN_DELTA:
             best_scores['val_loss'] = val_loss
-            best_val_loss = val_loss
+            # (best_val_loss 는 primary tie-break 전용 → 여기서 갱신하지 않아 서로 분리)
             epoch_best_path = save_best_with_epoch(
                 model, BEST_VAL_LOSS_PATH, epoch_idx + 1, "val_loss", val_loss,
             )
@@ -3019,6 +3432,8 @@ if __name__ == "__main__":
 
         return epochs_no_improve >= EARLY_STOP_PATIENCE
 
+    nan_skip_count = 0   # 비유한 loss 배치 스킵 누적(전체 run)
+    _stop_after_requested = False
     for epoch in range(start_epoch, NUM_EPOCHS):
         # ─── Train ───────────────────────────────────────
         # 스트리밍 샘플러: epoch마다 시퀀스 순서 reshuffle (프레임 내부순서는 유지)
@@ -3042,6 +3457,7 @@ if __name__ == "__main__":
         run = {'loss': 0.0, 'cls': 0.0, 'box': 0.0, 'quality': 0.0, 'depth': 0.0, 'n': 0}
         early_stop = False
         optimizer.zero_grad(set_to_none=True)
+        accum_count = 0   # 이번 accumulation 창에 쌓인 '유효(backward 성공)' 배치 수
 
         for step, batch in enumerate(train_loader):
             if MAX_STEPS_PER_EPOCH and step >= MAX_STEPS_PER_EPOCH:
@@ -3065,7 +3481,7 @@ if __name__ == "__main__":
                     return_intermediate=True,
                 )
                 batch_loss, batch_cls_loss, batch_box_loss, batch_quality_loss = (
-                    compute_auxiliary_detection_loss(
+                    _AUX_LOSS_FN(
                         model_out,
                         batch,
                         det_criterion,
@@ -3081,24 +3497,105 @@ if __name__ == "__main__":
                         model_out['depth_pred'], gt_depth_dev)
                     batch_loss = batch_loss + batch_depth_loss
 
+            # NaN/Inf 방어: loss 가 비유한이면 backward 하지 않고 이 배치를 스킵한다.
+            # accumulation 은 '성공한 backward 수(accum_count)'로 세므로, NaN 배치를 건너뛰어도
+            # 이미 쌓인 유효 grad 는 지우지 않고, optimizer step 은 항상 GRAD_ACCUM_STEPS 개의
+            # 유효 배치가 모였을 때만 실행된다(부분 누적/스케일 왜곡 방지).
+            if not torch.isfinite(batch_loss):
+                nan_skip_count += 1
+                # 근본원인 진단: 처음 몇 번만 상세(오버헤드는 NaN 배치에서만).
+                if nan_skip_count <= 5:
+                    diagnose_nonfinite(
+                        f"epoch{epoch+1} step{step} | det={batch_loss.item():.3g} "
+                        f"depth={float(batch_depth_loss.item()):.3g} stems={batch.get('stem')}",
+                        [
+                            ("in.images", images), ("in.intrinsics", intrinsics),
+                            ("in.extrinsics", extrinsics), ("in.ego_poses", ego_poses),
+                            ("in.focal", focal), ("in.gt_depth", batch.get('gt_depth')),
+                            ("in.gt_boxes", batch.get('dynamic_gt_boxes')),
+                            ("out.det_cls", model_out.get('det_cls')),
+                            ("out.det_box", model_out.get('det_box')),
+                            ("out.det_quality", model_out.get('det_quality')),
+                            ("out.depth_pred", model_out.get('depth_pred')),
+                            ("out.all_det_cls", model_out.get('all_det_cls')),
+                            ("out.all_det_box", model_out.get('all_det_box')),
+                        ],
+                        per_layer=("all_det_cls", model_out.get('all_det_cls')),
+                    )
+                if nan_skip_count <= 20 or nan_skip_count % 100 == 0:
+                    print(f"[WARN] 비유한 loss 배치 스킵 (epoch {epoch+1} step {step}, "
+                          f"누적 {nan_skip_count})")
+                continue
+
             loss_for_backward = batch_loss / GRAD_ACCUM_STEPS
             scaler.scale(loss_for_backward).backward()
+            accum_count += 1
 
-            should_step = (
-                ((step + 1) % GRAD_ACCUM_STEPS == 0) or
-                (step + 1 == len(train_loader))
-            )
+            # 유효 backward 가 GRAD_ACCUM_STEPS 개 모였거나(정확히 그 배수) epoch 마지막 배치이고
+            # 창에 쌓인 grad 가 있으면 optimizer step.
+            is_last_batch = (step + 1 == len(train_loader))
+            should_step = (accum_count >= GRAD_ACCUM_STEPS) or (is_last_batch and accum_count > 0)
             if should_step:
                 scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 25.0)
+                _total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 25.0)
+                # ── preflight: 첫 PREFLIGHT_UPDATES update 의 grad/clip/loss 성분 기록.
+                #    loss 계약 교체 시 clipping 이 비교를 왜곡하는지 검증하는 용도.
+                if global_update_step < PREFLIGHT_UPDATES:
+                    _pf_path = os.path.join(OUTPUT_CKPT_DIR, 'preflight.csv')
+                    _pf_new = not os.path.isfile(_pf_path)
+                    _ps = getattr(compute_parity_detection_loss, 'last_stats', {})
+                    _np_s = str(_ps.get('num_pos', '')) if LOSS_CONTRACT == 'parity' else ''
+                    _gr = _ps.get('gate_rate') if LOSS_CONTRACT == 'parity' else None
+                    _gr_s = f"{_gr:.3f}" if isinstance(_gr, float) else ''
+                    # temporal telemetry: temp_gate(layer별 학습 gate) / bank 활성 슬롯 /
+                    # 직전 forward 의 temporal-active frame 수 / 누적 bank 무효화 횟수.
+                    # cls>0.05 gate_rate(회귀 gate)와는 별개의 신호다.
+                    _gates = [float(l.temp_gate.detach().float().mean())
+                              for l in model.decoder_layers
+                              if getattr(l, 'use_temp_gnn', False) and hasattr(l, 'temp_gate')]
+                    _gate_s = f"{sum(abs(g) for g in _gates)/max(len(_gates),1):.5f}" if _gates else ''
+                    _bank = getattr(model, '_bank', None)
+                    _bank_s = str(sum(1 for e in _bank if e is not None)) if _bank else '0'
+                    _ta = f"{getattr(model, '_last_temporal_active', 0)}/{getattr(model, '_last_batch_size', 0)}"
+                    _rst = str(getattr(model, '_bank_reset_count', 0))
+                    # backbone/head grad norm 분리 (pre-clip 값으로 환산해 기록).
+                    # clip_grad_norm_ 반환값은 clip 전 total norm 이지만 grad 는 이미
+                    # in-place 로 스케일됐으므로, 측정한 post-clip backbone norm 을
+                    # clip 배율로 역보정한다. total² = backbone² + head².
+                    _tn = float(_total_norm)
+                    _bb_sq = 0.0
+                    for _p in model.backbone.parameters():
+                        if _p.grad is not None:
+                            _bb_sq += float(_p.grad.detach().float().pow(2).sum())
+                    _bb_post = _bb_sq ** 0.5
+                    _bb_pre = _bb_post * (_tn / 25.0) if _tn > 25.0 else _bb_post
+                    _hd_pre = max(_tn ** 2 - _bb_pre ** 2, 0.0) ** 0.5
+                    with open(_pf_path, 'a', encoding='utf-8') as _pf:
+                        if _pf_new:
+                            _pf.write('update,grad_norm,clipped,loss,cls,box,quality,'
+                                      'depth,num_pos,gate_rate,temp_gate_absmean,'
+                                      'bank_slots,temporal_active,bank_resets,'
+                                      'grad_backbone,grad_head\n')
+                        _pf.write(
+                            f"{global_update_step},{_tn:.4f},"
+                            f"{int(_tn > 25.0)},"
+                            f"{batch_loss.item():.4f},{batch_cls_loss.item():.4f},"
+                            f"{batch_box_loss.item():.4f},{batch_quality_loss.item():.4f},"
+                            f"{float(batch_depth_loss.item()):.4f},{_np_s},{_gr_s},"
+                            f"{_gate_s},{_bank_s},{_ta},{_rst},"
+                            f"{_bb_pre:.4f},{_hd_pre:.4f}\n")
                 old_scale = scaler.get_scale()
                 scaler.step(optimizer)
                 scaler.update()
                 new_scale = scaler.get_scale()
                 optimizer.zero_grad(set_to_none=True)
+                accum_count = 0
                 if new_scale >= old_scale:
                     global_update_step += 1
                     set_optimizer_lr(global_update_step)
+                if STOP_AFTER_UPDATES and global_update_step >= STOP_AFTER_UPDATES:
+                    _stop_after_requested = True
+                    break
 
             run['loss'] += batch_loss.item()
             run['cls'] += batch_cls_loss.item()
@@ -3139,6 +3636,17 @@ if __name__ == "__main__":
                 if early_stop:
                     break
 
+        if _stop_after_requested:
+            # 진단용 조기 종료: 정상 resume checkpoint + weight 스냅샷 저장 후 종료.
+            # scheduler horizon 은 NUM_EPOCHS 그대로였으므로 이 시점까지의 preflight.csv 는
+            # 본 학습과 동일한 LR 궤적을 관측한 것이다.
+            save_resume_checkpoint(epoch, epoch_completed=False)
+            _stop_w = os.path.join(OUTPUT_CKPT_DIR, f"stop_after_{global_update_step}_weights.pth")
+            torch.save(model.state_dict(), _stop_w)
+            print(f"\n[STOP_AFTER_UPDATES] {global_update_step} update 도달 → 종료. "
+                  f"weights: {_stop_w}")
+            break
+
         if device.type == "cuda":
             torch.cuda.synchronize()
         _train_seconds = time.perf_counter() - _train_started
@@ -3173,6 +3681,9 @@ if __name__ == "__main__":
         # (VAL_EVERY_STEPS로 딱 떨어져 run['n']==0이면 중복 검증 생략.)
         if run['n'] > 0:
             train_stats = {k: run[k] / run['n'] for k in ('loss', 'cls', 'box', 'quality', 'depth')}
+            # 매 epoch train loss 분해 텍스트 로그 (validation 여부 무관)
+            append_epoch_loss_log(EPOCH_LOSS_LOG_PATH, epoch + 1,
+                                  train_stats, optimizer.param_groups[-1]['lr'])
             _validation_due = (
                 (epoch + 1) % VALIDATE_EVERY_EPOCHS == 0 or
                 (epoch + 1) == NUM_EPOCHS
@@ -3189,8 +3700,18 @@ if __name__ == "__main__":
                 )
                 save_resume_checkpoint(epoch, epoch_completed=True)
 
+        # ─── temporal telemetry (epoch 단위) ──────────────
+        if USE_TEMPORAL_MEMORY:
+            _tg = [float(l.temp_gate.detach().float().mean())
+                   for l in model.decoder_layers
+                   if getattr(l, 'use_temp_gnn', False) and hasattr(l, 'temp_gate')]
+            _bk = getattr(model, '_bank', None)
+            print(f"   [temporal] temp_gate={[round(g, 5) for g in _tg]} "
+                  f"bank_slots={sum(1 for e in _bk if e is not None) if _bk else 0} "
+                  f"bank_resets(누적)={getattr(model, '_bank_reset_count', 0)}")
+
         # ─── 정기 체크포인트 ──────────────────────────────
-        if (epoch + 1) % 10 == 0:
+        if (epoch + 1) % CHECKPOINT_EVERY_EPOCHS == 0:
             ckpt_path = os.path.join(OUTPUT_CKPT_DIR, f"checkpoint_epoch{epoch+1}.pth") \
                 if RUN_DIR else f"checkpoint_epoch{epoch+1}.pth"
             torch.save(model.state_dict(), ckpt_path)

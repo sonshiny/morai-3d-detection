@@ -28,8 +28,8 @@ anchor_kmeans_meta.json
 __pycache__/
 *.pyc
 
-# 데이터셋 (11GB, 별도 외장 백업)
-dataset/
+# 데이터셋 (대용량, NAS 별도 백업). 루트의 실제 디렉터리와 심볼릭 링크 모두 제외.
+/dataset
 
 # 세션 임시/진단
 _tmp*
@@ -51,8 +51,16 @@ dataset_split_*.json
 
 # visual_audit: 71개 PNG 제외(생성 스크립트/README/index/manifest 만 추적)
 visual_audit/**/*.png
-# run 출력 격리 디렉터리(대용량 checkpoint) — *.pth 로도 제외되지만 명시
-runs/
+# run 결과는 config/metric/log/plot을 추적한다.
+# 모델과 재생성 가능한 대용량 raw prediction dump는 GitHub 용량 제한 때문에 제외한다.
+runs/**/*.pth
+runs/**/*.pt
+runs/**/*.ckpt
+runs/**/*_preds.npz
+# 위쪽의 전역 로그/학습곡선 제외 규칙보다 뒤에서 run 기록은 다시 포함한다.
+!runs/**/*.log
+!runs/**/training_curves.png
+!runs/**/training_history.csv
 # 대표 A/B: checkpoint/로그/init 은 제외, 작은 config/metric JSON·리포트는 개별 add
 experiments/**/*.pth
 experiments/**/*.log

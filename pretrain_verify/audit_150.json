@@ -1,0 +1,2410 @@
+{
+  "root": "/workspace/dataset",
+  "n_scenes": 150,
+  "calibration_present": true,
+  "scenes": [
+    {
+      "scenario": "scen01",
+      "critical": [],
+      "warn": [],
+      "n_labels": 571,
+      "n_ego": 571,
+      "n_lidar": 571,
+      "sync_saves": 571,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1862,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen02",
+      "critical": [],
+      "warn": [],
+      "n_labels": 296,
+      "n_ego": 296,
+      "n_lidar": 296,
+      "sync_saves": 296,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 751,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen03",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1081,
+      "n_ego": 1081,
+      "n_lidar": 1081,
+      "sync_saves": 1081,
+      "n_epochs": 2,
+      "epoch_ids": [
+        "0",
+        "1"
+      ],
+      "n_boxes": 3469,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen04",
+      "critical": [],
+      "warn": [],
+      "n_labels": 470,
+      "n_ego": 470,
+      "n_lidar": 470,
+      "sync_saves": 470,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1257,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen05",
+      "critical": [],
+      "warn": [],
+      "n_labels": 557,
+      "n_ego": 557,
+      "n_lidar": 557,
+      "sync_saves": 557,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1192,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen06",
+      "critical": [],
+      "warn": [],
+      "n_labels": 513,
+      "n_ego": 513,
+      "n_lidar": 513,
+      "sync_saves": 513,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1284,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen07",
+      "critical": [],
+      "warn": [],
+      "n_labels": 158,
+      "n_ego": 158,
+      "n_lidar": 158,
+      "sync_saves": 158,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 358,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen08",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1217,
+      "n_ego": 1217,
+      "n_lidar": 1217,
+      "sync_saves": 1217,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3645,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen09",
+      "critical": [],
+      "warn": [],
+      "n_labels": 401,
+      "n_ego": 401,
+      "n_lidar": 401,
+      "sync_saves": 401,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 800,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen10",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1355,
+      "n_ego": 1355,
+      "n_lidar": 1355,
+      "sync_saves": 1355,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 5393,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen11",
+      "critical": [],
+      "warn": [],
+      "n_labels": 547,
+      "n_ego": 547,
+      "n_lidar": 547,
+      "sync_saves": 547,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1177,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen12",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1417,
+      "n_ego": 1417,
+      "n_lidar": 1417,
+      "sync_saves": 1417,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 4629,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen13",
+      "critical": [],
+      "warn": [],
+      "n_labels": 782,
+      "n_ego": 782,
+      "n_lidar": 782,
+      "sync_saves": 782,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1918,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen14",
+      "critical": [],
+      "warn": [],
+      "n_labels": 983,
+      "n_ego": 983,
+      "n_lidar": 983,
+      "sync_saves": 983,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3827,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen15",
+      "critical": [],
+      "warn": [],
+      "n_labels": 992,
+      "n_ego": 992,
+      "n_lidar": 992,
+      "sync_saves": 992,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3324,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen16",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1013,
+      "n_ego": 1013,
+      "n_lidar": 1013,
+      "sync_saves": 1013,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3512,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen17",
+      "critical": [],
+      "warn": [],
+      "n_labels": 803,
+      "n_ego": 803,
+      "n_lidar": 803,
+      "sync_saves": 803,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1241,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen18",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1053,
+      "n_ego": 1053,
+      "n_lidar": 1053,
+      "sync_saves": 1053,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2541,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen19",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1216,
+      "n_ego": 1216,
+      "n_lidar": 1216,
+      "sync_saves": 1216,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 4390,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen20",
+      "critical": [],
+      "warn": [],
+      "n_labels": 836,
+      "n_ego": 836,
+      "n_lidar": 836,
+      "sync_saves": 836,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2156,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen21",
+      "critical": [],
+      "warn": [],
+      "n_labels": 560,
+      "n_ego": 560,
+      "n_lidar": 560,
+      "sync_saves": 560,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1839,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen22",
+      "critical": [],
+      "warn": [],
+      "n_labels": 958,
+      "n_ego": 958,
+      "n_lidar": 958,
+      "sync_saves": 958,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3152,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen23",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1349,
+      "n_ego": 1349,
+      "n_lidar": 1349,
+      "sync_saves": 1349,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 6075,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen24",
+      "critical": [],
+      "warn": [],
+      "n_labels": 336,
+      "n_ego": 336,
+      "n_lidar": 336,
+      "sync_saves": 336,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1222,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen25",
+      "critical": [],
+      "warn": [],
+      "n_labels": 364,
+      "n_ego": 364,
+      "n_lidar": 364,
+      "sync_saves": 364,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1270,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen26",
+      "critical": [],
+      "warn": [],
+      "n_labels": 959,
+      "n_ego": 959,
+      "n_lidar": 959,
+      "sync_saves": 959,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1683,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen27",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1108,
+      "n_ego": 1108,
+      "n_lidar": 1108,
+      "sync_saves": 1108,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3020,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen28",
+      "critical": [],
+      "warn": [],
+      "n_labels": 614,
+      "n_ego": 614,
+      "n_lidar": 614,
+      "sync_saves": 614,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1084,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen29",
+      "critical": [],
+      "warn": [],
+      "n_labels": 510,
+      "n_ego": 510,
+      "n_lidar": 510,
+      "sync_saves": 510,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1314,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen30",
+      "critical": [],
+      "warn": [],
+      "n_labels": 899,
+      "n_ego": 899,
+      "n_lidar": 899,
+      "sync_saves": 899,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2949,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen31",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1073,
+      "n_ego": 1073,
+      "n_lidar": 1073,
+      "sync_saves": 1073,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2031,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen32",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1334,
+      "n_ego": 1334,
+      "n_lidar": 1334,
+      "sync_saves": 1334,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 4225,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen33",
+      "critical": [],
+      "warn": [],
+      "n_labels": 774,
+      "n_ego": 774,
+      "n_lidar": 774,
+      "sync_saves": 774,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1757,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen34",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1276,
+      "n_ego": 1276,
+      "n_lidar": 1276,
+      "sync_saves": 1276,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3209,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen35",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1433,
+      "n_ego": 1433,
+      "n_lidar": 1433,
+      "sync_saves": 1433,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 4498,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen36",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1454,
+      "n_ego": 1454,
+      "n_lidar": 1454,
+      "sync_saves": 1454,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 4532,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen37",
+      "critical": [],
+      "warn": [],
+      "n_labels": 729,
+      "n_ego": 729,
+      "n_lidar": 729,
+      "sync_saves": 729,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1234,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen38",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1003,
+      "n_ego": 1003,
+      "n_lidar": 1003,
+      "sync_saves": 1003,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1866,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen39",
+      "critical": [],
+      "warn": [],
+      "n_labels": 708,
+      "n_ego": 708,
+      "n_lidar": 708,
+      "sync_saves": 708,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1996,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen40",
+      "critical": [],
+      "warn": [],
+      "n_labels": 844,
+      "n_ego": 844,
+      "n_lidar": 844,
+      "sync_saves": 844,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1766,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen41",
+      "critical": [],
+      "warn": [],
+      "n_labels": 589,
+      "n_ego": 589,
+      "n_lidar": 589,
+      "sync_saves": 589,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2135,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen42",
+      "critical": [],
+      "warn": [],
+      "n_labels": 817,
+      "n_ego": 817,
+      "n_lidar": 817,
+      "sync_saves": 817,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1460,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen43",
+      "critical": [],
+      "warn": [],
+      "n_labels": 835,
+      "n_ego": 835,
+      "n_lidar": 835,
+      "sync_saves": 835,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1756,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen44",
+      "critical": [],
+      "warn": [],
+      "n_labels": 554,
+      "n_ego": 554,
+      "n_lidar": 554,
+      "sync_saves": 554,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1589,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen45",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1383,
+      "n_ego": 1383,
+      "n_lidar": 1383,
+      "sync_saves": 1383,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3603,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen46",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1147,
+      "n_ego": 1147,
+      "n_lidar": 1147,
+      "sync_saves": 1147,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3381,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen47",
+      "critical": [],
+      "warn": [],
+      "n_labels": 843,
+      "n_ego": 843,
+      "n_lidar": 843,
+      "sync_saves": 843,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1462,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen48",
+      "critical": [],
+      "warn": [],
+      "n_labels": 895,
+      "n_ego": 895,
+      "n_lidar": 895,
+      "sync_saves": 895,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3169,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen49",
+      "critical": [],
+      "warn": [],
+      "n_labels": 436,
+      "n_ego": 436,
+      "n_lidar": 436,
+      "sync_saves": 436,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1639,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen50",
+      "critical": [],
+      "warn": [],
+      "n_labels": 686,
+      "n_ego": 686,
+      "n_lidar": 686,
+      "sync_saves": 686,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1892,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen51",
+      "critical": [],
+      "warn": [],
+      "n_labels": 957,
+      "n_ego": 957,
+      "n_lidar": 957,
+      "sync_saves": 957,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2149,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen52",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1147,
+      "n_ego": 1147,
+      "n_lidar": 1147,
+      "sync_saves": 1147,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3058,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen53",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1546,
+      "n_ego": 1546,
+      "n_lidar": 1546,
+      "sync_saves": 1546,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 5363,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen54",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1444,
+      "n_ego": 1444,
+      "n_lidar": 1444,
+      "sync_saves": 1444,
+      "n_epochs": 2,
+      "epoch_ids": [
+        "0",
+        "1"
+      ],
+      "n_boxes": 5620,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen55",
+      "critical": [],
+      "warn": [],
+      "n_labels": 509,
+      "n_ego": 509,
+      "n_lidar": 509,
+      "sync_saves": 509,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 980,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen56",
+      "critical": [],
+      "warn": [],
+      "n_labels": 842,
+      "n_ego": 842,
+      "n_lidar": 842,
+      "sync_saves": 842,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2039,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen57",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1387,
+      "n_ego": 1387,
+      "n_lidar": 1387,
+      "sync_saves": 1387,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 5159,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen58",
+      "critical": [],
+      "warn": [],
+      "n_labels": 965,
+      "n_ego": 965,
+      "n_lidar": 965,
+      "sync_saves": 965,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2138,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen59",
+      "critical": [],
+      "warn": [],
+      "n_labels": 563,
+      "n_ego": 563,
+      "n_lidar": 563,
+      "sync_saves": 563,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1518,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen60",
+      "critical": [],
+      "warn": [],
+      "n_labels": 608,
+      "n_ego": 608,
+      "n_lidar": 608,
+      "sync_saves": 608,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1594,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen61",
+      "critical": [],
+      "warn": [],
+      "n_labels": 506,
+      "n_ego": 506,
+      "n_lidar": 506,
+      "sync_saves": 506,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1705,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen62",
+      "critical": [],
+      "warn": [],
+      "n_labels": 560,
+      "n_ego": 560,
+      "n_lidar": 560,
+      "sync_saves": 560,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2126,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen63",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1304,
+      "n_ego": 1304,
+      "n_lidar": 1304,
+      "sync_saves": 1304,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 5132,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen64",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1216,
+      "n_ego": 1216,
+      "n_lidar": 1216,
+      "sync_saves": 1216,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3435,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen65",
+      "critical": [],
+      "warn": [],
+      "n_labels": 665,
+      "n_ego": 665,
+      "n_lidar": 665,
+      "sync_saves": 665,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2051,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen66",
+      "critical": [],
+      "warn": [],
+      "n_labels": 750,
+      "n_ego": 750,
+      "n_lidar": 750,
+      "sync_saves": 750,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2653,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen67",
+      "critical": [],
+      "warn": [],
+      "n_labels": 837,
+      "n_ego": 837,
+      "n_lidar": 837,
+      "sync_saves": 837,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2160,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen68",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1098,
+      "n_ego": 1098,
+      "n_lidar": 1098,
+      "sync_saves": 1098,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 4132,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen69",
+      "critical": [],
+      "warn": [],
+      "n_labels": 954,
+      "n_ego": 954,
+      "n_lidar": 954,
+      "sync_saves": 954,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2905,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen70",
+      "critical": [],
+      "warn": [],
+      "n_labels": 296,
+      "n_ego": 296,
+      "n_lidar": 296,
+      "sync_saves": 296,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1159,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen71",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1727,
+      "n_ego": 1727,
+      "n_lidar": 1727,
+      "sync_saves": 1727,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 7180,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen72",
+      "critical": [],
+      "warn": [],
+      "n_labels": 660,
+      "n_ego": 660,
+      "n_lidar": 660,
+      "sync_saves": 660,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1985,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen73",
+      "critical": [],
+      "warn": [],
+      "n_labels": 968,
+      "n_ego": 968,
+      "n_lidar": 968,
+      "sync_saves": 968,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2717,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen74",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1011,
+      "n_ego": 1011,
+      "n_lidar": 1011,
+      "sync_saves": 1011,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3852,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen75",
+      "critical": [],
+      "warn": [],
+      "n_labels": 391,
+      "n_ego": 391,
+      "n_lidar": 391,
+      "sync_saves": 391,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 988,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen76",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1426,
+      "n_ego": 1426,
+      "n_lidar": 1426,
+      "sync_saves": 1426,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 5396,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen77",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1359,
+      "n_ego": 1359,
+      "n_lidar": 1359,
+      "sync_saves": 1359,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3790,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen78",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1108,
+      "n_ego": 1108,
+      "n_lidar": 1108,
+      "sync_saves": 1108,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3297,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen79",
+      "critical": [],
+      "warn": [],
+      "n_labels": 210,
+      "n_ego": 210,
+      "n_lidar": 210,
+      "sync_saves": 210,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 713,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen80",
+      "critical": [],
+      "warn": [],
+      "n_labels": 959,
+      "n_ego": 959,
+      "n_lidar": 959,
+      "sync_saves": 959,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2590,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen81",
+      "critical": [],
+      "warn": [],
+      "n_labels": 335,
+      "n_ego": 335,
+      "n_lidar": 335,
+      "sync_saves": 335,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1210,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen82",
+      "critical": [],
+      "warn": [],
+      "n_labels": 567,
+      "n_ego": 567,
+      "n_lidar": 567,
+      "sync_saves": 567,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1398,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen83",
+      "critical": [],
+      "warn": [],
+      "n_labels": 848,
+      "n_ego": 848,
+      "n_lidar": 848,
+      "sync_saves": 848,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2737,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen84",
+      "critical": [],
+      "warn": [],
+      "n_labels": 843,
+      "n_ego": 843,
+      "n_lidar": 843,
+      "sync_saves": 843,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1675,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen85",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1309,
+      "n_ego": 1309,
+      "n_lidar": 1309,
+      "sync_saves": 1309,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3510,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen86",
+      "critical": [],
+      "warn": [],
+      "n_labels": 488,
+      "n_ego": 488,
+      "n_lidar": 488,
+      "sync_saves": 488,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1586,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen87",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1219,
+      "n_ego": 1219,
+      "n_lidar": 1219,
+      "sync_saves": 1219,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 4323,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen88",
+      "critical": [],
+      "warn": [],
+      "n_labels": 632,
+      "n_ego": 632,
+      "n_lidar": 632,
+      "sync_saves": 632,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2116,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen89",
+      "critical": [],
+      "warn": [],
+      "n_labels": 267,
+      "n_ego": 267,
+      "n_lidar": 267,
+      "sync_saves": 267,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 954,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen90",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1094,
+      "n_ego": 1094,
+      "n_lidar": 1094,
+      "sync_saves": 1094,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 4256,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen91",
+      "critical": [],
+      "warn": [],
+      "n_labels": 970,
+      "n_ego": 970,
+      "n_lidar": 970,
+      "sync_saves": 970,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3014,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen92",
+      "critical": [],
+      "warn": [],
+      "n_labels": 821,
+      "n_ego": 821,
+      "n_lidar": 821,
+      "sync_saves": 821,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2025,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen93",
+      "critical": [],
+      "warn": [],
+      "n_labels": 576,
+      "n_ego": 576,
+      "n_lidar": 576,
+      "sync_saves": 576,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1848,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen94",
+      "critical": [],
+      "warn": [],
+      "n_labels": 814,
+      "n_ego": 814,
+      "n_lidar": 814,
+      "sync_saves": 814,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2097,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen95",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1510,
+      "n_ego": 1510,
+      "n_lidar": 1510,
+      "sync_saves": 1510,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 4564,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen96",
+      "critical": [],
+      "warn": [],
+      "n_labels": 892,
+      "n_ego": 892,
+      "n_lidar": 892,
+      "sync_saves": 892,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3170,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen97",
+      "critical": [],
+      "warn": [],
+      "n_labels": 527,
+      "n_ego": 527,
+      "n_lidar": 527,
+      "sync_saves": 527,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1607,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen98",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1010,
+      "n_ego": 1010,
+      "n_lidar": 1010,
+      "sync_saves": 1010,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3326,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen99",
+      "critical": [],
+      "warn": [],
+      "n_labels": 612,
+      "n_ego": 612,
+      "n_lidar": 612,
+      "sync_saves": 612,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1266,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen100",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1197,
+      "n_ego": 1197,
+      "n_lidar": 1197,
+      "sync_saves": 1197,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2074,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen101",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1436,
+      "n_ego": 1436,
+      "n_lidar": 1436,
+      "sync_saves": 1436,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3704,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen102",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1313,
+      "n_ego": 1313,
+      "n_lidar": 1313,
+      "sync_saves": 1313,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3887,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen103",
+      "critical": [],
+      "warn": [],
+      "n_labels": 212,
+      "n_ego": 212,
+      "n_lidar": 212,
+      "sync_saves": 212,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 602,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen104",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1480,
+      "n_ego": 1480,
+      "n_lidar": 1480,
+      "sync_saves": 1480,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3625,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen105",
+      "critical": [],
+      "warn": [],
+      "n_labels": 534,
+      "n_ego": 534,
+      "n_lidar": 534,
+      "sync_saves": 534,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1502,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen106",
+      "critical": [],
+      "warn": [],
+      "n_labels": 421,
+      "n_ego": 421,
+      "n_lidar": 421,
+      "sync_saves": 421,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1352,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen107",
+      "critical": [],
+      "warn": [],
+      "n_labels": 658,
+      "n_ego": 658,
+      "n_lidar": 658,
+      "sync_saves": 658,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2497,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen108",
+      "critical": [],
+      "warn": [],
+      "n_labels": 531,
+      "n_ego": 531,
+      "n_lidar": 531,
+      "sync_saves": 531,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 950,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen109",
+      "critical": [],
+      "warn": [],
+      "n_labels": 739,
+      "n_ego": 739,
+      "n_lidar": 739,
+      "sync_saves": 739,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1763,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen110",
+      "critical": [],
+      "warn": [],
+      "n_labels": 400,
+      "n_ego": 400,
+      "n_lidar": 400,
+      "sync_saves": 400,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 851,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen111",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1157,
+      "n_ego": 1157,
+      "n_lidar": 1157,
+      "sync_saves": 1157,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2722,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen112",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1388,
+      "n_ego": 1388,
+      "n_lidar": 1388,
+      "sync_saves": 1388,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 4271,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen113",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1040,
+      "n_ego": 1040,
+      "n_lidar": 1040,
+      "sync_saves": 1040,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3631,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen114",
+      "critical": [],
+      "warn": [],
+      "n_labels": 514,
+      "n_ego": 514,
+      "n_lidar": 514,
+      "sync_saves": 514,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1342,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen115",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1349,
+      "n_ego": 1349,
+      "n_lidar": 1349,
+      "sync_saves": 1349,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2944,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen116",
+      "critical": [],
+      "warn": [],
+      "n_labels": 532,
+      "n_ego": 532,
+      "n_lidar": 532,
+      "sync_saves": 532,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1724,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen117",
+      "critical": [],
+      "warn": [],
+      "n_labels": 294,
+      "n_ego": 294,
+      "n_lidar": 294,
+      "sync_saves": 294,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 797,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen118",
+      "critical": [],
+      "warn": [],
+      "n_labels": 637,
+      "n_ego": 637,
+      "n_lidar": 637,
+      "sync_saves": 637,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2073,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen119",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1245,
+      "n_ego": 1245,
+      "n_lidar": 1245,
+      "sync_saves": 1245,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 4763,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen120",
+      "critical": [],
+      "warn": [],
+      "n_labels": 946,
+      "n_ego": 946,
+      "n_lidar": 946,
+      "sync_saves": 946,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2716,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen121",
+      "critical": [],
+      "warn": [],
+      "n_labels": 284,
+      "n_ego": 284,
+      "n_lidar": 284,
+      "sync_saves": 284,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 882,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen122",
+      "critical": [],
+      "warn": [],
+      "n_labels": 953,
+      "n_ego": 953,
+      "n_lidar": 953,
+      "sync_saves": 953,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2962,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen123",
+      "critical": [],
+      "warn": [],
+      "n_labels": 803,
+      "n_ego": 803,
+      "n_lidar": 803,
+      "sync_saves": 803,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1796,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen124",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1096,
+      "n_ego": 1096,
+      "n_lidar": 1096,
+      "sync_saves": 1096,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 4647,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen125",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1416,
+      "n_ego": 1416,
+      "n_lidar": 1416,
+      "sync_saves": 1416,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 5088,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen126",
+      "critical": [],
+      "warn": [],
+      "n_labels": 291,
+      "n_ego": 291,
+      "n_lidar": 291,
+      "sync_saves": 291,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 678,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen127",
+      "critical": [],
+      "warn": [],
+      "n_labels": 590,
+      "n_ego": 590,
+      "n_lidar": 590,
+      "sync_saves": 590,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2085,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen128",
+      "critical": [],
+      "warn": [],
+      "n_labels": 391,
+      "n_ego": 391,
+      "n_lidar": 391,
+      "sync_saves": 391,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1056,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen129",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1012,
+      "n_ego": 1012,
+      "n_lidar": 1012,
+      "sync_saves": 1012,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3441,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen130",
+      "critical": [],
+      "warn": [],
+      "n_labels": 499,
+      "n_ego": 499,
+      "n_lidar": 499,
+      "sync_saves": 499,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1928,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen131",
+      "critical": [],
+      "warn": [],
+      "n_labels": 520,
+      "n_ego": 520,
+      "n_lidar": 520,
+      "sync_saves": 520,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1543,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen132",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1314,
+      "n_ego": 1314,
+      "n_lidar": 1314,
+      "sync_saves": 1314,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 4183,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen133",
+      "critical": [],
+      "warn": [],
+      "n_labels": 787,
+      "n_ego": 787,
+      "n_lidar": 787,
+      "sync_saves": 787,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1938,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen134",
+      "critical": [],
+      "warn": [],
+      "n_labels": 725,
+      "n_ego": 725,
+      "n_lidar": 725,
+      "sync_saves": 725,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1748,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen135",
+      "critical": [],
+      "warn": [],
+      "n_labels": 867,
+      "n_ego": 867,
+      "n_lidar": 867,
+      "sync_saves": 867,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2651,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen136",
+      "critical": [],
+      "warn": [],
+      "n_labels": 959,
+      "n_ego": 959,
+      "n_lidar": 959,
+      "sync_saves": 959,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2190,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen137",
+      "critical": [],
+      "warn": [],
+      "n_labels": 946,
+      "n_ego": 946,
+      "n_lidar": 946,
+      "sync_saves": 946,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2921,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen138",
+      "critical": [],
+      "warn": [],
+      "n_labels": 604,
+      "n_ego": 604,
+      "n_lidar": 604,
+      "sync_saves": 604,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1837,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen139",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1054,
+      "n_ego": 1054,
+      "n_lidar": 1054,
+      "sync_saves": 1054,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3362,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen140",
+      "critical": [],
+      "warn": [],
+      "n_labels": 802,
+      "n_ego": 802,
+      "n_lidar": 802,
+      "sync_saves": 802,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1246,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen141",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1207,
+      "n_ego": 1207,
+      "n_lidar": 1207,
+      "sync_saves": 1207,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 4166,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen142",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1179,
+      "n_ego": 1179,
+      "n_lidar": 1179,
+      "sync_saves": 1179,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 3254,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen143",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1439,
+      "n_ego": 1439,
+      "n_lidar": 1439,
+      "sync_saves": 1439,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 5174,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen144",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1421,
+      "n_ego": 1421,
+      "n_lidar": 1421,
+      "sync_saves": 1421,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 5534,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen145",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1030,
+      "n_ego": 1030,
+      "n_lidar": 1030,
+      "sync_saves": 1030,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2594,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen146",
+      "critical": [],
+      "warn": [],
+      "n_labels": 392,
+      "n_ego": 392,
+      "n_lidar": 392,
+      "sync_saves": 392,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1192,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen147",
+      "critical": [],
+      "warn": [],
+      "n_labels": 531,
+      "n_ego": 531,
+      "n_lidar": 531,
+      "sync_saves": 531,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1602,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen148",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1558,
+      "n_ego": 1558,
+      "n_lidar": 1558,
+      "sync_saves": 1558,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 4811,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen149",
+      "critical": [],
+      "warn": [],
+      "n_labels": 1067,
+      "n_ego": 1067,
+      "n_lidar": 1067,
+      "sync_saves": 1067,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 2978,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    },
+    {
+      "scenario": "scen150",
+      "critical": [],
+      "warn": [],
+      "n_labels": 669,
+      "n_ego": 669,
+      "n_lidar": 669,
+      "sync_saves": 669,
+      "n_epochs": 1,
+      "epoch_ids": [
+        "0"
+      ],
+      "n_boxes": 1780,
+      "raw_velocity_ratio": 1.0,
+      "n_nonfinite": 0
+    }
+  ],
+  "n_critical": 0
+}

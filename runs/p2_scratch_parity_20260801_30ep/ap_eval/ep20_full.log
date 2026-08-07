@@ -1,0 +1,53 @@
+[RUN] python /workspace/morai-3d-detection/evaluate_ap.py --run-dir runs/p2_scratch_parity_20260801_30ep --ckpt checkpoint_epoch20.pth --tag ep20_full --num-workers 4
+[eval] ckpt=runs/p2_scratch_parity_20260801_30ep/checkpoint_epoch20.pth
+[eval] device=cuda, roi_max=50.0m, variants=('final_nonms', 'raw_nonms', 'final_pre_nonms', 'final_nms'), diag=True
+[MoraiTemporalDataset:val] gt=v3 (labels_3d_v3+scene_info_v3.json) | 시나리오 ['scen02', 'scen07', 'scen08', 'scen09', 'scen21', 'scen23', 'scen24', 'scen27', 'scen29', 'scen36', 'scen44', 'scen51', 'scen55', 'scen56', 'scen57', 'scen58', 'scen60', 'scen63', 'scen71', 'scen72', 'scen90', 'scen98', 'scen104', 'scen108', 'scen109', 'scen115', 'scen130', 'scen140', 'scen145', 'scen149'] | 26,503 프레임 | chunk=150
+[StreamingGroupSampler] B=4 shuffle=False drop_tail=False | 시퀀스 191개 프레임 26,503 | 트랙길이 [6627, 6628, 6628, 6620] | 배치 6628
+[eval] val frames=26,503, batches=6,628
+/opt/miniconda3/envs/morai-train/lib/python3.11/site-packages/torch/utils/cpp_extension.py:2356: UserWarning: TORCH_CUDA_ARCH_LIST is not set, all archs for visible cards are included for compilation. 
+If this is not desired, please set os.environ['TORCH_CUDA_ARCH_LIST'].
+  warnings.warn(
+[eval] 2,000 frames, 111s (18.0 fps)
+[eval] 4,000 frames, 218s (18.3 fps)
+[eval] 6,000 frames, 325s (18.5 fps)
+[eval] 8,000 frames, 431s (18.6 fps)
+[eval] 10,000 frames, 538s (18.6 fps)
+[eval] 12,000 frames, 646s (18.6 fps)
+[eval] 14,000 frames, 753s (18.6 fps)
+[eval] 16,000 frames, 861s (18.6 fps)
+[eval] 18,000 frames, 970s (18.5 fps)
+[eval] 20,000 frames, 1075s (18.6 fps)
+[eval] 22,000 frames, 1181s (18.6 fps)
+[eval] 24,000 frames, 1287s (18.7 fps)
+[eval] 26,000 frames, 1392s (18.7 fps)
+[eval] forward done: 26,503 frames in 1418s
+[eval] saved → runs/p2_scratch_parity_20260801_30ep/ap_eval/ep20_full.json
+[eval] preds dump → runs/p2_scratch_parity_20260801_30ep/ap_eval/ep20_full_preds.npz
+
+══════════ AP (nuScenes-style front-ROI) ══════════
+[final_nonms] mAP=0.6646
+  vehicle    AP@0.5=0.3743  AP@1.0=0.6972  AP@2.0=0.8660  AP@4.0=0.9209
+  pedestrian AP@0.5=0.3011  AP@1.0=0.5369  AP@2.0=0.7659  AP@4.0=0.8545
+[raw_nonms] mAP=0.6290
+  vehicle    AP@0.5=0.3207  AP@1.0=0.6610  AP@2.0=0.8638  AP@4.0=0.9250
+  pedestrian AP@0.5=0.2169  AP@1.0=0.4543  AP@2.0=0.7368  AP@4.0=0.8537
+[final_pre_nonms] mAP=0.6621
+  vehicle    AP@0.5=0.3716  AP@1.0=0.6910  AP@2.0=0.8608  AP@4.0=0.9171
+  pedestrian AP@0.5=0.3011  AP@1.0=0.5364  AP@2.0=0.7652  AP@4.0=0.8539
+[final_nms] mAP=0.6646
+  vehicle    AP@0.5=0.3605  AP@1.0=0.6813  AP@2.0=0.8673  AP@4.0=0.9309
+  pedestrian AP@0.5=0.2931  AP@1.0=0.5322  AP@2.0=0.7790  AP@4.0=0.8725
+
+══════════ TP errors @2m (final_nonms) ══════════
+  vehicle    ate_xy=0.579  ate_3d=0.583  ase=0.141  aoe_rad=0.057  ave=0.626  n_tp=42187  ave_coverage=0.989
+  pedestrian ate_xy=0.684  ate_3d=0.689  ase=0.231  aoe_rad=0.696  ave=0.113  n_tp=25242  ave_coverage=0.994
+
+══════════ 진단 요약 ══════════
+  positive conf: p50=0.915 p10=0.002 (<0.1: 28.8%, <0.3: 32.1%)
+  [legacy proxy] yaw>xy cost 비율: 65.2%, yaw-zero 재할당 변경: 29.8%
+  [parity 계약] posconf p50=0.936 | layer agree={'layer1': 0.42, 'layer2': 0.45, 'layer3': 0.47, 'layer4': 0.97} | matched xy p50=0.42
+  quality[current_exp(-dxy/4)]: IG=0.0093 regret=0.1639 budget=0.1732
+  quality[official_exp(-d3d)]: IG=-0.0732 regret=0.2967 budget=0.2235
+  spearman(quality, d3d) = -0.429
+
+[eval] total 1731s
